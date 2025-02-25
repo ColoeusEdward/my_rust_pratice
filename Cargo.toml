@@ -1,0 +1,20 @@
+[package]
+name = "hello_cargo"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+chrono = "0.4.39"
+rand = "0.8.5"
+tokio = { version = "1.43.0", features = ["macros",  "io-util","rt", "rt-multi-thread"] }
+tokio-macros = "2.5.0"
+utf8_slice = "1.0.0"
+warp = { version = "0.3.7", features = ["default"] }
+[dependencies.winapi]
+version = "0.3.9"
+features = ["winuser", "windef", "ntdef"]
+[dependencies.reqwest]
+version = "0.12.12"
+features = ["json"]
