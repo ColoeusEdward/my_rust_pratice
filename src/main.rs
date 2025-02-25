@@ -24,7 +24,7 @@ async fn main() {
     });
 
     //获取路由
-    // // 定义一个简单的 GET 路由
+    // // 定义一个简单的 GET 路由test
     // let hello = warp::path!("hello" / String)
     //     .map(|name| format!("Hello, {}!", name));
 
