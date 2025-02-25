@@ -24,12 +24,12 @@ jobs:
     - name: Build Release
       run: cargo build --release
 
-    - name: Rename executable (optional)
-      shell: powershell
-      run: |
-        $exePath = "target/release/hello_cargo.exe"
-        $newName = "my_rust_pratice-${{ github.ref_name }}.exe"
-        Rename-Item -Path $exePath -NewName $newName
+    # - name: Rename executable (optional)
+    #   shell: powershell
+    #   run: |
+    #     $exePath = "target/release/hello_cargo.exe"
+    #     $newName = "hello_cargo-${{ github.ref_name }}.exe"
+    #     Rename-Item -Path $exePath -NewName $newName
       # 替换 your_project_name 为你的 crate 名称
 
     - name: Create Release
