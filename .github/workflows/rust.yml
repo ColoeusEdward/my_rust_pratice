@@ -39,7 +39,7 @@ jobs:
         tag_name: ${{ github.ref_name }}
         body: "Windows build for ${{ github.ref_name }}"
         files: |
-          target/release/my_rust_pratice-*.exe
+          target/release/hello_cargo.exe
         draft: false
         prerelease: false
       env:
