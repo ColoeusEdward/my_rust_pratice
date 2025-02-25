@@ -23,7 +23,7 @@ async fn main() {
         }
     });
 
-    //获取路由t
+    //获取路由ttest
     // // 定义一个简单的 GET 路由 release go
     // let hello = warp::path!("hello" / String)
     //     .map(|name| format!("Hello, {}!", name));
