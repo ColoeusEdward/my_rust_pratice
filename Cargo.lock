@@ -395,7 +395,7 @@ dependencies = [
 
 [[package]]
 name = "hello_cargo"
-version = "0.1.0"
+version = "0.1.16"
 dependencies = [
  "chrono",
  "rand",
