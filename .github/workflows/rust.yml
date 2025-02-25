@@ -1,52 +1,32 @@
-name: Rust Multi-Platform Build
+name: Build and Upload Executable
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "master" ] # 触发 workflow 的分支，这里设置为 main 和 master，你可以根据你的项目修改
 
 jobs:
   build:
+    name: Build Executable
+    runs-on: ${{ matrix.os }} # 使用矩阵策略，在不同的操作系统上运行构建
+
     strategy:
       matrix:
-        platform: [windows-latest] # 定义目标平台
-        include: # 为不同平台定义扩展名和缓存路径
-          - platform: windows-latest
-            ext: '.exe'
-            cache-target: target
-    runs-on: ${{ matrix.platform }} # 动态指定运行平台
+        os: [windows-latest] # 定义要构建的操作系统平台
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4 # 使用 actions/checkout@v4 action 来检出代码
 
-      - name: Install Rust
-        uses: rust-lang/setup-rust@v1
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1 # 使用 actions-rs/toolchain@v1 action 来安装 Rust toolchain
         with:
-          toolchain: stable
-          profile: minimal
-          components: rustfmt, clippy
+          toolchain: stable # 使用 stable 版本的 Rust toolchain
 
-      - name: Cache dependencies
-        uses: actions/cache@v3
+      - name: Build application
+        run: cargo build --release # 使用 cargo build --release 命令进行 release 模式构建
+
+      - name: Upload Executable Artifact
+        uses: actions/upload-artifact@v3.1.2 # 使用 actions/upload-artifact@v3 action 来上传 artifact
         with:
-          # 根据平台动态调整缓存路径格式
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            ${{ matrix.cache-target }}
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Build Release
-        run: cargo build --release
-
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v3
-        with:
-          # 动态生成产物名称（包含平台信息）
-          name: release-${{ runner.os }}
-          # 根据平台扩展名匹配二进制文件
-          path: |
-            target/release/*${{ matrix.ext }}
-            !target/release/*.d
-          if-no-files-found: error
-          retention-days: 30
+          name: executable-${{ matrix.os }} # artifact 的名字，包含操作系统信息
+          path: target/release/*.exe # 上传 target/release 目录下所有文件 (这里假设可执行文件在 release 目录下)
