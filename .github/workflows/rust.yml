@@ -1,32 +1,46 @@
-name: Build and Upload Executable
+name: Windows Release Build
 
 on:
   push:
-    branches: [ "main", "master" ] # 触发 workflow 的分支，这里设置为 main 和 master，你可以根据你的项目修改
-
+    tags:
+      - 'v*'  # 触发条件：当推送以 v 开头的 tag 时（例如 v1.0.0）
 jobs:
-  build:
-    name: Build Executable
-    runs-on: ${{ matrix.os }} # 使用矩阵策略，在不同的操作系统上运行构建
-
-    strategy:
-      matrix:
-        os: [windows-latest] # 定义要构建的操作系统平台
+  build-and-release:
+    runs-on: windows-latest
+    permissions:
+      contents: write  # 需要写入权限来创建 release
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4 # 使用 actions/checkout@v4 action 来检出代码
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1 # 使用 actions-rs/toolchain@v1 action 来安装 Rust toolchain
-        with:
-          toolchain: stable # 使用 stable 版本的 Rust toolchain
+    - name: Setup Rust
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        target: x86_64-pc-windows-msvc  # Windows 目标平台
+        profile: minimal
+        toolchain: stable
 
-      - name: Build application
-        run: cargo build --release # 使用 cargo build --release 命令进行 release 模式构建
+    - name: Build Release
+      run: cargo build --release
 
-      - name: Upload Executable Artifact
-        uses: actions/upload-artifact@v3.1.2 # 使用 actions/upload-artifact@v3 action 来上传 artifact
-        with:
-          name: executable-${{ matrix.os }} # artifact 的名字，包含操作系统信息
-          path: target/release/*.exe # 上传 target/release 目录下所有文件 (这里假设可执行文件在 release 目录下)
+    - name: Rename executable (optional)
+      shell: powershell
+      run: |
+        $exePath = "target/release/hello_cargo.exe"
+        $newName = "my_rust_pratice-${{ github.ref_name }}.exe"
+        Rename-Item -Path $exePath -NewName $newName
+      # 替换 your_project_name 为你的 crate 名称
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        name: ${{ github.ref_name }}
+        tag_name: ${{ github.ref_name }}
+        body: "Windows build for ${{ github.ref_name }}"
+        files: |
+          target/release/my_rust_pratice-*.exe
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
