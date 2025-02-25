@@ -1,0 +1,52 @@
+name: Rust Multi-Platform Build
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        platform: [windows-latest] # 定义目标平台
+        include: # 为不同平台定义扩展名和缓存路径
+          - platform: windows-latest
+            ext: '.exe'
+            cache-target: target
+    runs-on: ${{ matrix.platform }} # 动态指定运行平台
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: rust-lang/setup-rust@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          components: rustfmt, clippy
+
+      - name: Cache dependencies
+        uses: actions/cache@v3
+        with:
+          # 根据平台动态调整缓存路径格式
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ${{ matrix.cache-target }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build Release
+        run: cargo build --release
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          # 动态生成产物名称（包含平台信息）
+          name: release-${{ runner.os }}
+          # 根据平台扩展名匹配二进制文件
+          path: |
+            target/release/*${{ matrix.ext }}
+            !target/release/*.d
+          if-no-files-found: error
+          retention-days: 30
