@@ -3,6 +3,8 @@ use chrono::Local;
 use std::process::Command;
 use tokio::time::{sleep, Duration};
 use warp::Rejection;
+use crate::get_pot_player;
+
 
 pub async fn charge() -> Result<String, Rejection> {
     let now = Local::now();
@@ -17,6 +19,17 @@ pub async fn charge() -> Result<String, Rejection> {
     });
 
     Ok(format!("charge up"))
+}
+
+pub async fn play_list() -> Result<String, Rejection> {
+    let res = get_pot_player::get_player_list_file().await;
+    match res {
+        Err(e) => {
+            println!("文件读取失败: {}", e);
+            return Ok("文件读取失败".to_string());
+        }
+        Ok(_) => Ok("播放列表更新成功".to_string()),
+    }
 }
 
 pub async fn potplay(s: String) -> Result<String, Rejection> {

@@ -1,6 +1,6 @@
 [package]
 name = "hello_cargo"
-version = "0.1.20"
+version = "0.1.21"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -12,5 +12,9 @@ tokio = { version = "1.43.0", features = ["macros",  "io-util","rt", "rt-multi-t
 tokio-macros = "2.5.0"
 utf8_slice = "1.0.0"
 warp = { version = "0.3.7", features = ["default"] }
-winapi = { version = "0.3.9", features = ["winuser", "windef", "ntdef"] }
-reqwest = { version = "0.12.12", features = ["json"] }
+winapi = { version = "0.3.9", features = ["winuser", "windef", "ntdef","winbase"] }
+reqwest = { version = "0.12.12", features = ["json","multipart","stream"] }
+serde_json = { version = "1.0.139", features = ["default"] }
+serde = { version = "1.0.218", features = ["derive"] }
+futures = "0.3.31"
+user32-sys = "0.2.0"

@@ -15,13 +15,18 @@ mod uitl;
 
 #[tokio::main]
 async fn main() {
-    let handle = tokio::spawn(async {
-        loop {
-            get_pot_player::save_pot_play_info().await;
-            sleep(Duration::from_secs(5 * 60)).await;
-        }
-    });
-
+    if !cfg!(debug_assertions){
+        let handle = tokio::spawn(async {
+            loop {
+                get_pot_player::save_pot_play_info().await;
+                sleep(Duration::from_secs(5 * 60)).await;
+            }
+        });
+    }
+    unsafe {
+        enums::set_user();
+    }
+    // get_pot_player::get_player_list_file().await;
     //获取路由k
     // // 定义一个简单的 GET 路由 release go
     // let hello = warp::path!("hello" / String)
@@ -30,9 +35,9 @@ async fn main() {
     // // 组合路由
     // let route = hello;
     let route = router::get_router();
-    
+    let port: u16 = if cfg!(debug_assertions) { 7655 } else { 7654 };
     warp::serve(route)
-        .run(([0, 0, 0, 0 ], 7654))
+        .run(([0, 0, 0, 0 ], port))
         .await; 
 }
 
