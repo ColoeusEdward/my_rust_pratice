@@ -10,13 +10,13 @@ pub const PLAY_LIST_SERVER_PATH: &str = "https://meamoe.top/record/temp/PotPlaye
 
 pub const POT_LOCATION: &str = r"C:\Program Files\DAUM\PotPlayer\PotPlayerMini64.exe";
 
-pub const POT_LOCATION_KAF: &str = r"C:\Program Files\DAUM\PotPlayer\PotPlayerMini64.exe";
+pub const POT_LOCATION_KAF: &str = r"D:\Software\PotPlayer\PotPlayerMini64.exe";
 
 pub const PLAY_LIST_LOCAL_LIST: &str =
     r"C:\Users\11038\AppData\Roaming\PotPlayerMini64\Playlist\PotPlayerMini64.dpl";
 
 pub const PLAY_LIST_LOCAL_LIST_KAF: &str =
-    r"C:\Users\Kaf\AppData\Roaming\PotPlayerMini64\Playlist\PotPlayerMini64.dpl";
+    r"D:\Software\PotPlayer\Playlist\PotPlayerMini64.dpl";
 
 pub const HW_USER: &str = "huangwen";
 pub const KAF_USER: &str = "kaf";
@@ -49,14 +49,14 @@ pub fn get_pot_location() -> &'static str {
 pub fn get_list_local_list() -> &'static str {
   
 let us: String = get_user();
-println!(
-  "🪵 [enums.rs:322]~ token ~ \x1b[0;32mUSER == HW_USER \x1b[0m = {} {} {} {}",
-  us,
-  HW_USER,
-  us == HW_USER,
-  "huangwen"==us
-);
-assert_eq!(us, HW_USER);
+// println!(
+//   "🪵 [enums.rs:322]~ token ~ \x1b[0;32mUSER == HW_USER \x1b[0m = {} {} {} {}",
+//   us,
+//   HW_USER,
+//   us == HW_USER,
+//   "huangwen"==us
+// );
+// assert_eq!(us, HW_USER);
     if us ==HW_USER   {
         PLAY_LIST_LOCAL_LIST
     } else {
