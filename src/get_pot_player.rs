@@ -94,7 +94,7 @@ async fn upload_info(info: PlayInfo) -> Result<(), reqwest::Error> {
 
 pub async fn save_pot_play_info() {
     let hwnd = get_potplayer_hwnd().await;
-    // println!("hwnd null: {}", hwnd.is_null());
+    println!("hwnd null: {}", hwnd.is_null());
     if !hwnd.is_null() {
         let mut info = unsafe {
             let res = SendMessageA(
