@@ -69,9 +69,13 @@ fn get_user() -> String {
 }
 
 pub struct PlayInfo {
-    pub name: String,
-    pub time: String,
-    pub ts: i64,
+    pub name: String,  //正在播放标题
+    pub time: String,   //时间字符播放进度
+    pub pg_time: isize, //ms播放进度
+    pub ts: i64,        //正在播放日期ts
+
+    pub play_time: String,  //播放进度ms
+    pub play_bv: String,
 }
 
 #[derive(Debug, Deserialize)]

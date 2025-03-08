@@ -1,10 +1,11 @@
 // use std::str::FromStr;
-use chrono::{NaiveDateTime, NaiveDate, NaiveTime};
+use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use std::fs::File;
-use std::io::{Seek, SeekFrom, Read};
+use std::io::{BufRead, BufReader};
+use std::io::{Read, Seek, SeekFrom};
+use std::os::raw::c_ulong;
 use std::path::Path;
 use winapi::um::winbase::GetUserNameA;
-use std::os::raw::c_ulong;
 
 pub fn format_duration_extended(milliseconds: u64) -> String {
     let total_seconds = milliseconds / 1000;
@@ -23,7 +24,7 @@ pub fn format_duration_extended(milliseconds: u64) -> String {
 
 pub fn transform_wuyang_time_ts(arr: &[&str]) -> i64 {
     // 解析日期和时间字符串
-    let current_year = "2025";  //统一假设为2025, 跨年判断在服务器做
+    let current_year = "2025"; //统一假设为2025, 跨年判断在服务器做
     let str = format!("{} {}", current_year, arr[0]);
     let date = NaiveDate::parse_from_str(&str, "%Y %m-%d").expect("日期解析失败");
     let time = NaiveTime::parse_from_str(arr[1], "%H_%M_%S").expect("时间解析失败");
@@ -33,10 +34,13 @@ pub fn transform_wuyang_time_ts(arr: &[&str]) -> i64 {
     datetime.and_utc().timestamp()
 }
 
-pub fn read_last_lines<P: AsRef<Path>>(path: P,num:usize) -> std::io::Result<Vec<String>> {
+pub fn read_last_lines<P: AsRef<Path>>(path: P, num: usize) -> std::io::Result<Vec<String>> {
     let mut file = File::open(path)?;
     let file_size = file.metadata()?.len();
-    println!("🪵 [uitl.rs:38]~ token ~ \x1b[0;32mfile_size\x1b[0m = {}", file_size);
+    println!(
+        "🪵 [uitl.rs:38]~ token ~ \x1b[0;32mfile_size\x1b[0m = {}",
+        file_size
+    );
 
     let mut buffer = Vec::new();
     let mut pos = file_size; // 从末尾开始
@@ -67,8 +71,109 @@ pub fn read_last_lines<P: AsRef<Path>>(path: P,num:usize) -> std::io::Result<Vec
     let lines: Vec<&str> = content.lines().collect();
 
     // 提取最后两行
-    let start = if lines.len() >= num { lines.len() - num } else { 0 };
+    let start = if lines.len() >= num {
+        lines.len() - num
+    } else {
+        0
+    };
     Ok(lines[start..].iter().map(|s| s.to_string()).collect())
+}
+
+pub fn read_first_lines<P: AsRef<Path>>(path: P, num: usize) -> std::io::Result<Vec<String>> {
+    let mut file = File::open(path)?;
+    let file_size = file.metadata()?.len();
+    // println!("🪵 [uitl.rs:38]~ token ~ \x1b[0;32mfile_size\x1b[0m = {}", file_size);
+
+    let mut buffer = Vec::new();
+    let mut pos = 0;
+    let mut line_count = 0;
+
+    // 正向逐字节读取
+    while line_count < num {
+        pos += 1;
+        file.seek(SeekFrom::Start(pos))?;
+        let mut byte = [0u8; 1];
+        file.read_exact(&mut byte)?;
+
+        if byte[0] == b'\n' {
+            line_count += 1;
+            buffer.push(b'@');
+        }
+
+        buffer.push(byte[0]);
+    }
+
+    // 处理最后一行无换行符的情况
+    if line_count < num && pos == file_size {
+        // line_count += 1;
+    }
+
+    // buffer.reverse(); // 恢复正向顺序
+    let content = String::from_utf8_lossy(&buffer).into_owned();
+    let lines: Vec<&str> = content.lines().collect();
+    // println!("🪵 [uitl.rs:108]~ token ~ \x1b[0;32mlines.len()\x1b[0m = {} {}", lines.len(),content);
+
+    // 提取最后n行
+    let start = if lines.len() >= num {
+        lines.len() - num
+    } else {
+        0
+    };
+    Ok(lines[start..].iter().map(|s| s.to_string()).collect())
+}
+
+pub fn read_lines<P: AsRef<Path>>(
+    path: P,
+    start_num: usize,
+    num: usize,
+) -> std::io::Result<String> {
+    let mut file = File::open(path)?;
+    let file_size = file.metadata()?.len();
+    let end_num = start_num + num;
+    // println!("🪵 [uitl.rs:38]~ token ~ \x1b[0;32mfile_size\x1b[0m = {}", file_size);
+
+    let mut buffer = Vec::new();
+    let mut pos = 0;
+    let mut line_count = 0;
+
+    // 正向逐字节读取
+    while line_count < end_num {
+        pos += 1;
+        file.seek(SeekFrom::Start(pos))?;
+        let mut byte = [0u8; 1];
+        file.read_exact(&mut byte)?;
+
+        if byte[0] == b'\n' {
+            line_count += 1;
+            if line_count >= start_num {
+                buffer.push(b'@');
+            }
+        }
+        if line_count >= start_num {
+            buffer.push(byte[0]);
+        }
+    }
+
+    // 处理最后一行无换行符的情况
+    if line_count < num && pos == file_size {
+        // line_count += 1;
+    }
+
+    // buffer.reverse(); // 恢复正向顺序
+    let content = String::from_utf8_lossy(&buffer).into_owned();
+    let lines: Vec<&str> = content.lines().collect();
+  
+
+    // 提取最后n行
+    // let start = if lines.len() >= num {
+    //     lines.len() - num
+    // } else {
+    //     0
+    // };
+    let start = 0;
+    // let res:Vec<String> = lines.iter().map(|s| s.to_string()).collect();
+    // println!("🪵 [uitl.rs:174]~ token ~ \x1b[0;32mres\x1b[0m = {}",&res.join("!!"));
+    Ok(content)
 }
 
 pub fn get_sys_username() -> String {
@@ -78,4 +183,35 @@ pub fn get_sys_username() -> String {
         GetUserNameA(username.as_mut_ptr() as *mut i8, &mut size);
     }
     String::from_utf8_lossy(&username).to_string()
+}
+
+/// 查找字符串坐标（行号从1开始，列号从0开始）
+pub fn find_string_coordinates<P: AsRef<Path>>(
+    file_path: P,
+    target: &str,
+) -> Result<Vec<(usize, usize)>, std::io::Error> {
+    let file = File::open(file_path)?;
+    let reader = BufReader::new(file);
+
+    let mut positions = Vec::new();
+    let target_bytes = target.as_bytes();
+
+    for (line_num, line_result) in reader.lines().enumerate() {
+        let line = line_result?;
+        // line.find(target);
+        let line_bytes = line.as_bytes();
+
+        // 遍历每一字节查找匹配
+        let mut pos = 0;
+        while pos <= line_bytes.len().saturating_sub(target_bytes.len()) {
+            if line_bytes[pos..].starts_with(target_bytes) {
+                positions.push((line_num + 1, pos + 1)); // 列号从1开始
+                pos += target_bytes.len();
+            } else {
+                pos += 1;
+            }
+        }
+    }
+
+    Ok(positions)
 }

@@ -22,7 +22,6 @@ use winapi::um::winuser::{
     FindWindowExA, GetWindowTextW, IsWindowVisible, RealGetWindowClassA, SendMessageA,
 };
 
-
 // 回调函数，用于枚举窗口
 unsafe extern "system" fn enum_windows_callback(hwnd: HWND, _: LPARAM) -> i32 {
     // 检查窗口是否可见
@@ -73,7 +72,10 @@ async fn upload_info(info: PlayInfo) -> Result<(), reqwest::Error> {
     let mut map = HashMap::new();
     map.insert("name", info.name);
     map.insert("time", info.time);
+    map.insert("pgTime", info.pg_time.to_string());
     map.insert("ts", info.ts.to_string());
+    map.insert("playBv", info.play_bv);
+    map.insert("playTime", info.play_time);
     let res = client
         .post("https://meamoe.top/koa/newCen/free/savePotInfo")
         .json(&map)
@@ -107,12 +109,20 @@ pub async fn save_pot_play_info() {
             let title = get_win_title(hwnd);
             enums::PlayInfo {
                 name: title.replace(" - PotPlayer", ""),
-                time: time_str,
-                ts: 0,
+                time: time_str, //播放进度时间
+                pg_time:res,//ms的播放进度时间
+                ts: 0,          //日期
+                play_bv: "".to_string(),
+                play_time: "".to_string(),  
             }
             // println!("Window progress time: {} ", time_str);
         };
         if info.name.contains("雾氧") {
+            //这一块其实没有意义, 因为播放器没关闭文件不会更新
+            // let (bv, play_time,now_title) = get_pot_first_info();
+            // info.play_bv = bv;
+            // info.play_time = play_time;
+
             let split_str = info.name.split(" ").collect::<Vec<_>>();
             let time_str_list = &split_str[1..3];
             info.ts = uitl::transform_wuyang_time_ts(time_str_list);
@@ -125,6 +135,66 @@ pub async fn save_pot_play_info() {
     // unsafe {
     //     enum_windows_callback(hwnd, 0);
     // }
+}
+
+pub fn get_pot_first_info() -> (String, String, String) {
+    let path = enums::get_list_local_list();
+    let line_first = uitl::read_lines(path, 0, 25);
+
+    let bv = "";
+    let play_time = "";
+    let play_title = "";
+    let mut line_str = String::new();
+    match line_first {
+        Ok(str) => line_str = str, 
+        Err(e) => eprintln!("读取文件失败: {}", e),
+    }
+    let line_str = line_str;
+    let line_str = line_str.split("@").collect::<Vec<_>>();
+
+    let line_str_first: &[&str] = &line_str[1..3];
+    // println!("🪵 [get_pot_player.rs:151]~ token ~ \x1b[0;32mline_str_first\x1b[0m = {}", line_str_first.join(""));
+    let bv = line_str_first[0].split("/").collect::<Vec<_>>();
+    let bv = bv.last().unwrap();
+    let play_time = line_str_first[1].split("=").last().unwrap();
+
+    let line_str_after = &line_str[4..];
+    // println!("🪵 [get_pot_player.rs:156]~ token ~ \x1b[0;32mline_str_after\x1b[0m = {}", line_str_after.join(""));
+    let index = line_str_after.iter()
+    .position(|&x| x.contains(bv)); // 返回 Some(2)
+    let index = match index {
+        Some(value) =>value,
+        None => {eprintln!("前排没有搜到bv号: ", );0},
+    };
+    let (bv2,title):(&str,&str) = if index > 0 {
+        println!("🪵 [get_pot_player.rs:164]~ token ~ \x1b[0;32mindex\x1b[0m = {}", index);
+        let line_bv_title = &line_str_after[index..index+2];
+        let bv2 = line_bv_title[0].split("/").collect::<Vec<_>>();
+        let bv2 = bv2.last().unwrap();
+        let title = line_bv_title[1].split("*").last().unwrap();
+        (bv2,title)
+    }else {
+        ("","")
+    };
+    // println!("🪵 [get_pot_player.rs:166]~ token ~ \x1b[0;32mbv2\x1b[0m = {}", bv2);
+    // println!("🪵 [get_pot_player.rs:169]~ token ~ \x1b[0;32mtitle\x1b[0m = {}", title);
+    // println!("🪵 [get_pot_player.rs:153]~ token ~ \x1b[0;32mbv\x1b[0m = {}", bv);
+    // println!("🪵 [get_pot_player.rs:155]~ token ~ \x1b[0;32mplay_time\x1b[0m = {}", play_time);
+
+    (bv.to_string(), play_time.to_string(),title.to_string())
+}
+
+pub fn search_front_now_play() {
+    let path = enums::get_list_local_list();
+    let line_first = uitl::read_lines(path, 5, 25);
+    let bv = "";
+    let play_time = "";
+    let play_title = "";
+    // let mut line_str = String::new();
+//     match line_first {
+//         Ok(idx) => idx, 
+//         Err(e) => {eprintln!("读取文件失败: {}", e);String::new()},
+//     }
 }
 
 pub async fn get_player_list_file() -> Result<(), std::io::Error> {
@@ -140,35 +210,60 @@ pub async fn get_player_list_file() -> Result<(), std::io::Error> {
     }
 
     let path = enums::get_list_local_list();
-    println!("🪵 [get_pot_player.rs:142]~ token ~ \x1b[0;32mpath\x1b[0m = {}", path);
+    println!(
+        "🪵 [get_pot_player.rs:142]~ token ~ \x1b[0;32mpath\x1b[0m = {}",
+        path
+    );
     let line = uitl::read_last_lines(path, 6);
     if !line.is_err() {
         let line = line.unwrap().join("");
         let line = line.split("@").collect::<Vec<_>>();
         let line = line[2].split("*").collect::<Vec<_>>();
-        let title = line[2];
-        println!("🪵 [get_pot_player.rs:149]~ token ~ \x1b[0;32mtitle\x1b[0m = {}", title);
+        let title = line[2];  
+        println!(
+            "🪵 [get_pot_player.rs:149]~ token ~ \x1b[0;32mtitle\x1b[0m = {}",
+            title
+        );
         if title.contains("雾氧") {
+            let (bv, play_time,now_title) = get_pot_first_info();
+
             let split_str = title.split(" ").collect::<Vec<_>>();
             let time_str_list = &split_str[1..3];
-            let ts = uitl::transform_wuyang_time_ts(time_str_list);
-            println!("🪵 [get_pot_player.rs:142]~ token ~ \x1b[0;32mtime_str_list\x1b[0m = {} {}",ts, title);
-            let is_new = check_play_list_new(title.to_string(), ts).await;
+            let ts = uitl::transform_wuyang_time_ts(time_str_list); //日期
+
+            let split_str = now_title.split(" ").collect::<Vec<_>>();
+            let time_str_list = &split_str[1..3];
+            let now_play_ts = uitl::transform_wuyang_time_ts(time_str_list); //日期
+            println!(
+                "🪵 [get_pot_player.rs:142]~ token ~ \x1b[0;32mtime_str_list\x1b[0m = {} {} {} {} {} {}",
+                ts, title, bv, play_time, now_play_ts, now_title
+            );
+            let is_new = check_play_list_new(title.to_string(), ts, &bv, &play_time , now_play_ts,&now_title).await;
             if is_new {
                 upload_play_list().await.unwrap();
             } else {
                 down_server_play_list().await.unwrap();
             }
-            println!("🪵 [get_pot_player.rs:146]~ token ~ \x1b[0;32mis_new\x1b[0m = {}", is_new);
+            println!(
+                "🪵 [get_pot_player.rs:146]~ token ~ \x1b[0;32mis_new\x1b[0m = {}",
+                is_new
+            );
+
             // down_server_play_list().await.unwrap();
         }
-    }else{
+    } else {
         match line {
             Err(e) => {
-                println!("🪵 [get_pot_player.rs:142]~ token ~ \x1b[0;32me\x1b[0m = {}", e);
+                println!(
+                    "🪵 [get_pot_player.rs:142]~ token ~ \x1b[0;32me\x1b[0m = {}",
+                    e
+                );
             }
             Ok(line) => {
-                println!("🪵 [get_pot_player.rs:142]~ token ~ \x1b[0;32mline\x1b[0m = {}", "playlist 读取成功");
+                println!(
+                    "🪵 [get_pot_player.rs:142]~ token ~ \x1b[0;32mline\x1b[0m = {}",
+                    "playlist 读取成功"
+                );
             }
         }
     }
@@ -178,7 +273,7 @@ pub async fn get_player_list_file() -> Result<(), std::io::Error> {
         Command::new("powershell")
             .args(&[
                 "-Command",
-                format!(r#"start "{}""#,enums::get_pot_location()).as_ref()
+                format!(r#"start "{}""#, enums::get_pot_location()).as_ref(),
             ])
             .spawn()
             .expect("执行失败");
@@ -188,16 +283,19 @@ pub async fn get_player_list_file() -> Result<(), std::io::Error> {
         );
     }
 
-    
-
     Ok(())
 }
 
-async fn check_play_list_new(title: String, ts: i64) -> bool {
+async fn check_play_list_new(title: String, ts: i64, bv: &str, play_time: &str, now_play_ts: i64,now_title:&str) -> bool {//title最末端标题,ts最末端日期ts
     let client = reqwest::Client::new();
     let mut map: HashMap<&str, String> = HashMap::new();
     map.insert("name", title);
     map.insert("ts", ts.to_string());
+    map.insert("playBv", bv.to_string());
+    map.insert("playTime", play_time.to_string());
+    map.insert("playTs", now_play_ts.to_string());
+    map.insert("nowTitle", now_title.to_string());
+
 
     let res = client
         .post("https://meamoe.top/koa/newCen/free/checkPlayListNew")
