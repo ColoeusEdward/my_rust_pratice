@@ -26,8 +26,9 @@ pub fn transform_wuyang_time_ts(arr: &[&str]) -> i64 {
     // 解析日期和时间字符串
     let current_year = "2025"; //统一假设为2025, 跨年判断在服务器做
     let str = format!("{} {}", current_year, arr[0]);
+    let time_str = arr[1].trim_end();
     let date = NaiveDate::parse_from_str(&str, "%Y %m-%d").expect("日期解析失败");
-    let time = NaiveTime::parse_from_str(arr[1], "%H_%M_%S").expect("时间解析失败");
+    let time = NaiveTime::parse_from_str(time_str, "%H_%M_%S").expect("时间解析失败");
     // 合并日期和时间
     let datetime = NaiveDateTime::new(date, time);
     // 转换为时间戳

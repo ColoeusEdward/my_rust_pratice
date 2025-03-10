@@ -226,6 +226,7 @@ pub async fn get_player_list_file() -> Result<(), std::io::Error> {
         );
         if title.contains("雾氧") {
             let (bv, play_time,now_title) = get_pot_first_info();
+            // println!("🪵 [get_pot_player.rs:228]~ token ~ \x1b[0;32mnow_title\x1b[0m = {}", now_title);
 
             let split_str = title.split(" ").collect::<Vec<_>>();
             let time_str_list = &split_str[1..3];

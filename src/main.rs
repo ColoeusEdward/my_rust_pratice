@@ -26,8 +26,9 @@ async fn main() {
     unsafe {
         enums::set_user();
     }
-    
-    get_pot_player::get_pot_first_info();
+
+    // let (bv, play_time,now_title)  = get_pot_player::get_pot_first_info();
+   
     // get_pot_player::get_player_list_file().await;
     //获取路由k
     // // 定义一个简单的 GET 路由 release go
