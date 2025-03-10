@@ -27,8 +27,14 @@ async fn main() {
         enums::set_user();
     }
 
+    get_pot_player::save_pot_play_info().await;
+    // get_pot_player::get_player_list_file().await;
     // let (bv, play_time,now_title)  = get_pot_player::get_pot_first_info();
-   
+    // println!("🪵 [main.rs:30]~ token ~ \x1b[0;32mnow_title\x1b[0m = {}", now_title);
+    // let split_str = now_title.split(" ").collect::<Vec<_>>();
+    // let time_str_list = &split_str[1..3];
+    // let now_play_ts = uitl::transform_wuyang_time_ts(time_str_list); //日期
+
     // get_pot_player::get_player_list_file().await;
     //获取路由k
     // // 定义一个简单的 GET 路由 release go

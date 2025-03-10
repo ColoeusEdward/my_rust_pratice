@@ -139,7 +139,7 @@ pub async fn save_pot_play_info() {
 
 pub fn get_pot_first_info() -> (String, String, String) {
     let path = enums::get_list_local_list();
-    let line_first = uitl::read_lines(path, 0, 25);
+    let line_first = uitl::read_lines(path, 0, 37);
 
     let bv = "";
     let play_time = "";
@@ -181,7 +181,7 @@ pub fn get_pot_first_info() -> (String, String, String) {
     // println!("🪵 [get_pot_player.rs:153]~ token ~ \x1b[0;32mbv\x1b[0m = {}", bv);
     // println!("🪵 [get_pot_player.rs:155]~ token ~ \x1b[0;32mplay_time\x1b[0m = {}", play_time);
 
-    (bv.to_string(), play_time.to_string(),title.to_string())
+    (bv.trim_end().to_string(), play_time.trim_end().to_string(),title.trim_end().to_string())
 }
 
 pub fn search_front_now_play() {
