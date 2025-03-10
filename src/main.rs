@@ -27,7 +27,7 @@ async fn main() {
         enums::set_user();
     }
 
-    get_pot_player::save_pot_play_info().await;
+    // get_pot_player::save_pot_play_info().await;
     // get_pot_player::get_player_list_file().await;
     // let (bv, play_time,now_title)  = get_pot_player::get_pot_first_info();
     // println!("🪵 [main.rs:30]~ token ~ \x1b[0;32mnow_title\x1b[0m = {}", now_title);
