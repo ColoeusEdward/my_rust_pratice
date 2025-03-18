@@ -90,7 +90,7 @@ pub fn read_first_lines<P: AsRef<Path>>(path: P, num: usize) -> std::io::Result<
     let mut line_count = 0;
 
     // 正向逐字节读取
-    while line_count < num {
+    while pos < file_size-1 && line_count < num {
         pos += 1;
         file.seek(SeekFrom::Start(pos))?;
         let mut byte = [0u8; 1];
@@ -138,7 +138,7 @@ pub fn read_lines<P: AsRef<Path>>(
     let mut line_count = 0;
 
     // 正向逐字节读取
-    while line_count < end_num {
+    while pos < file_size-1 && line_count < end_num {
         pos += 1;
         file.seek(SeekFrom::Start(pos))?;
         let mut byte = [0u8; 1];

@@ -8,6 +8,8 @@ pub const REQ_TYPE: u32 = 1024;
 
 pub const PLAY_LIST_SERVER_PATH: &str = "https://meamoe.top/record/temp/PotPlayerMini64.dpl";
 
+pub const TEMP_LOCATION: &str = r"D:\MCode\test\PotPlayerMini64.dpl";
+
 pub const POT_LOCATION: &str = r"C:\Program Files\DAUM\PotPlayer\PotPlayerMini64.exe";
 
 pub const POT_LOCATION_KAF: &str = r"D:\Software\PotPlayer\PotPlayerMini64.exe";
