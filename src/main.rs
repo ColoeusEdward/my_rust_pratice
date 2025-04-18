@@ -4,6 +4,7 @@
 use tokio::time::{sleep, Duration};
 use tokio::{self};
 
+
 // use std::thread::sleep;
 // use std::time::Duration;
 
@@ -12,6 +13,8 @@ mod enums;
 mod get_pot_player;
 mod router;
 mod uitl;
+mod ui;
+mod menu;
 
 #[tokio::main]
 async fn main() {
@@ -27,6 +30,8 @@ async fn main() {
         enums::set_user();
     }
 
+
+
     // get_pot_player::save_pot_play_info().await;
     // get_pot_player::get_player_list_file().await;
     // let (bv, play_time,now_title)  = get_pot_player::get_pot_first_info();
@@ -41,13 +46,19 @@ async fn main() {
     // let hello = warp::path!("hello" / String)
     //     .map(|name| format!("Hello, {}!", name));
 
+
     // // 组合路由
     // let route = hello;
-    let route = router::get_router();
-    let port: u16 = if cfg!(debug_assertions) { 7655 } else { 7654 };
-    warp::serve(route)
-        .run(([0, 0, 0, 0 ], port))
-        .await; 
+    let handle = tokio::spawn(async {
+        let port: u16 = if cfg!(debug_assertions) { 7655 } else { 7654 };
+        let route = router::get_router();
+        warp::serve(route)
+            .run(([0, 0, 0, 0 ], port))
+            .await; 
+    });
+
+    menu::start::init_menu();
+    
 }
 
 // type File = String;
