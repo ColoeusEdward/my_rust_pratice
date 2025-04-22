@@ -11,6 +11,7 @@ pub fn get_router(
   let route_of_get = warp::get().and(
     warp::path!("hello" / String).and_then(move |s: String| me::potplay(s))
     .or(warp::path!("charge").and_then(me::charge))
+    .or(warp::path!("brave").and_then(me::start_barve))
     .or(warp::path!("playList").and_then(me::play_list))
   );
 

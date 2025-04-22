@@ -21,6 +21,29 @@ pub async fn charge() -> Result<String, Rejection> {
     Ok(format!("charge up"))
 }
 
+
+pub async fn start_barve() -> Result<String, Rejection> {
+    let now = Local::now();
+    println!("当前系统时间: {:?}", now);
+    tokio::spawn(async {
+        let script = r#"start brave  https://game.mahjongsoul.com"#;
+        let output = Command::new("powershell.exe")
+            .args(&["-Command", &script])
+            .output()
+            .expect("执行失败");
+        sleep(Duration::from_secs(270)).await;
+
+        let script = r#"Stop-Process -Name "Brave""#;
+        let output = Command::new("powershell.exe")
+        .args(&["-Command", &script])
+        .output()
+        .expect("执行失败");
+    });
+
+    Ok(format!("brave up"))
+}
+
+
 pub async fn play_list() -> Result<String, Rejection> {
     let res = get_pot_player::get_player_list_file().await;
     match res {
