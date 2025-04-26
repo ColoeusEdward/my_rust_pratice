@@ -1,6 +1,5 @@
 #![allow(unused_variables, dead_code)]
 
-use rsautogui::mouse;
 // use std::io;
 // use utf8_slice::slice;
 use tokio::time::{sleep, Duration};
