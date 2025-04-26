@@ -1,4 +1,6 @@
 #![allow(unused_variables, dead_code)]
+
+use rsautogui::mouse;
 // use std::io;
 // use utf8_slice::slice;
 use tokio::time::{sleep, Duration};
@@ -61,6 +63,7 @@ async fn main() {
     // let line_first = uitl::read_lines(path, 0, 37).unwrap();
     // println!("🪵 [main.rs:60]~ token ~ \x1b[0;32mline_first\x1b[0m = {}", line_first);
 
+    
 
     menu::start::init_menu();
     

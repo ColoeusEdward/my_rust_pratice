@@ -1,5 +1,6 @@
 // use std::sync::{Arc, Mutex};
 use chrono::Local;
+use rsautogui::mouse;
 use std::process::Command;
 use tokio::time::{sleep, Duration};
 use warp::Rejection;
@@ -33,6 +34,12 @@ pub async fn start_barve() -> Result<String, Rejection> {
             .expect("执行失败");
         sleep(Duration::from_secs(270)).await;
 
+        mouse::move_to(300, 550);
+        sleep(Duration::from_secs(1)).await;
+        // Perform a left-click
+        mouse::click(mouse::Button::Left);
+
+        sleep(Duration::from_secs(5)).await;
         let script = r#"Stop-Process -Name "Brave""#;
         let output = Command::new("powershell.exe")
         .args(&["-Command", &script])
