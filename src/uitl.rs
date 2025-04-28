@@ -6,6 +6,9 @@ use std::io::{Read, Seek, SeekFrom};
 use std::os::raw::c_ulong;
 use std::path::Path;
 use winapi::um::winbase::GetUserNameA;
+use screenshots::Screen;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
+
 
 pub fn format_duration_extended(milliseconds: u64) -> String {
     let total_seconds = milliseconds / 1000;
@@ -215,4 +218,26 @@ pub fn find_string_coordinates<P: AsRef<Path>>(
     }
 
     Ok(positions)
+}
+
+pub fn screen_shot() -> () {
+    let start = Instant::now();
+    let screens = Screen::all().unwrap();
+    let ts= SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
+    for screen in screens {
+        println!("Capturer {:?}", screen);
+        let image = screen.capture().unwrap();
+        image
+            .save(format!("D:\\MCode\\Rust/{}-{}.png", screen.display_info.id,ts))
+            .unwrap();
+
+        // image = screen.capture_area(300, 300, 300, 300).unwrap();
+        // image
+        //     .save(format!("target/{}-2.png", screen.display_info.id))
+        //     .unwrap();
+    }
+
+
+    println!("运行耗时: {:?}", start.elapsed());
+    // Ok("截图成功".to_string())
 }

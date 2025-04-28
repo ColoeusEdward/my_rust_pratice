@@ -61,7 +61,7 @@ async fn main() {
     // let path = enums::get_list_local_list();
     // let line_first = uitl::read_lines(path, 0, 37).unwrap();
     // println!("🪵 [main.rs:60]~ token ~ \x1b[0;32mline_first\x1b[0m = {}", line_first);
-
+    uitl::screen_shot();
     
 
     menu::start::init_menu();
