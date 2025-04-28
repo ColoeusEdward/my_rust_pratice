@@ -5,6 +5,7 @@ use std::process::Command;
 use tokio::time::{sleep, Duration};
 use warp::Rejection;
 use crate::get_pot_player;
+use crate::uitl;
 
 
 pub async fn charge() -> Result<String, Rejection> {
@@ -38,7 +39,8 @@ pub async fn start_barve() -> Result<String, Rejection> {
         sleep(Duration::from_secs(1)).await;
         // Perform a left-click
         mouse::click(mouse::Button::Left);
-
+        
+        uitl::screen_shot();
         sleep(Duration::from_secs(5)).await;
         let script = r#"Stop-Process -Name "Brave""#;
         let output = Command::new("powershell.exe")
