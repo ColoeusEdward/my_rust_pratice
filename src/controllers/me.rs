@@ -33,6 +33,30 @@ pub async fn start_barve() -> Result<String, Rejection> {
             .args(&["-Command", &script])
             .output()
             .expect("执行失败");
+
+        mouse::move_to(200, 550);
+        sleep(Duration::from_secs(1)).await;
+        // Perform a left-click
+        mouse::click(mouse::Button::Left);
+        sleep(Duration::from_secs(1)).await;
+        mouse::click(mouse::Button::Left);
+        sleep(Duration::from_secs(1)).await;
+        mouse::click(mouse::Button::Left);
+        sleep(Duration::from_secs(1)).await;
+        mouse::click(mouse::Button::Left);
+        sleep(Duration::from_secs(1)).await;
+        mouse::click(mouse::Button::Left);
+        sleep(Duration::from_secs(1)).await;
+        mouse::click(mouse::Button::Left);
+        sleep(Duration::from_secs(1)).await;
+        mouse::click(mouse::Button::Left);
+        sleep(Duration::from_secs(1)).await;
+        mouse::click(mouse::Button::Left);
+        sleep(Duration::from_secs(1)).await;
+        mouse::click(mouse::Button::Left);
+        sleep(Duration::from_secs(1)).await;
+        mouse::click(mouse::Button::Left);
+
         sleep(Duration::from_secs(270)).await;
 
         mouse::move_to(300, 550);
