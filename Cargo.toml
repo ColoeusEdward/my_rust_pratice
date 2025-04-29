@@ -1,6 +1,6 @@
 [package]
 name = "hello_cargo"
-version = "0.1.36"
+version = "0.1.37"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -20,3 +20,10 @@ futures = "0.3.31"
 user32-sys = "0.2.0"
 rsautogui = "0.2.2"
 screenshots = "0.8.10"
+hyper = { version = "1.6.0", features = ["full"] }
+mime_guess = "2.0.5"
+percent-encoding = "2.3.1"
+axum = "0.8.3"
+tower-http = { version =  "0.6.2",   features = ["fs"] }
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }

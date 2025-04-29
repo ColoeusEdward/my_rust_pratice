@@ -23,6 +23,8 @@ pub const PLAY_LIST_LOCAL_LIST_KAF: &str =
 pub const HW_USER: &str = "huangwen";
 pub const KAF_USER: &str = "kaf";
 
+pub const STATIC_DIR : &str= r"D:\Software"; 
+
 pub static USER: OnceLock<String> = OnceLock::new();
 
 pub unsafe fn set_user() {

@@ -1,13 +1,14 @@
 
 use std::io;
 use std::io::Write;
+use crate::controllers::file;
 use crate::get_pot_player;
 
 pub fn init_menu() -> () {
   loop {
     println!("\n请选择一个选项:");
     println!("1. get_play_list");
-    println!("2. 执行操作 B");
+    println!("2. start_soft_server");
     println!("3. 退出");
 
     print!("请输入您的选择: ");
@@ -28,7 +29,10 @@ pub fn init_menu() -> () {
           ()
         }
         "2" => {
-            println!("执行操作 B...");
+          tokio::spawn(async {
+            file::axum_init().await;
+        });
+          ()
             // 在这里添加执行操作 B 的代码
         }
         "3" => {

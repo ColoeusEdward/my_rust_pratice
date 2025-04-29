@@ -95,3 +95,4 @@ pub async fn potplay(s: String) -> Result<String, Rejection> {
 pub async fn test() -> Result<String, Rejection> {
     Ok(format!("********"))
 }
+

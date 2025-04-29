@@ -10,6 +10,7 @@ use screenshots::Screen;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 
+
 pub fn format_duration_extended(milliseconds: u64) -> String {
     let total_seconds = milliseconds / 1000;
     // let days = total_seconds / 86400;
@@ -241,3 +242,5 @@ pub fn screen_shot() -> () {
     println!("运行耗时: {:?}", start.elapsed());
     // Ok("截图成功".to_string())
 }
+
+
