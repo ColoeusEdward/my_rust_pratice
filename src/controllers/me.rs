@@ -35,6 +35,9 @@ pub async fn start_barve() -> Result<String, Rejection> {
             .expect("执行失败");
 
         mouse::move_to(200, 550);
+        
+
+        sleep(Duration::from_secs(270)).await;
         sleep(Duration::from_secs(1)).await;
         // Perform a left-click
         mouse::click(mouse::Button::Left);
@@ -56,8 +59,6 @@ pub async fn start_barve() -> Result<String, Rejection> {
         mouse::click(mouse::Button::Left);
         sleep(Duration::from_secs(1)).await;
         mouse::click(mouse::Button::Left);
-
-        sleep(Duration::from_secs(270)).await;
 
         mouse::move_to(300, 550);
         sleep(Duration::from_secs(1)).await;
