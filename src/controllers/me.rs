@@ -103,9 +103,8 @@ pub fn show_mouse_xy() -> () {
 pub fn check_network() -> () {
     async  fn  check_one() -> () {
         let res = uitl::ping("www.baidu.com").unwrap();
-        let mut str = "".to_string();
         let str2 = String::from_utf8_lossy(&res.stdout).clone();
-        str = str2.trim().to_string();
+        let str = str2.trim().to_string();
         println!("output 字符串{}", str);
         println!(
             "🪵 [me.rs:118]~ token ~ \x1b[0;32mstr.len()\x1b[0m = {}",
@@ -120,7 +119,7 @@ pub fn check_network() -> () {
     }
     async fn  relink_wifi() -> (){
         let mut enigo = Enigo::new(&Settings::default()).unwrap();
-        enigo.key(Key::LWin, Direction::Click);
+        let _ =enigo.key(Key::LWin, Direction::Click);
         sleep(Duration::from_secs(1)).await;
         mouse::move_to(1800, 1055);
         mouse::click(mouse::Button::Left);
