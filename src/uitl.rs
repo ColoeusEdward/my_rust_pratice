@@ -8,6 +8,11 @@ use std::path::Path;
 use winapi::um::winbase::GetUserNameA;
 use screenshots::Screen;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::process::{Command, Output};
+use std::error::Error;
+
+
+
 
 
 
@@ -244,3 +249,18 @@ pub fn screen_shot() -> () {
 }
 
 
+pub fn ping(target: &str) -> Result<Output, Box<dyn Error>> {
+    let output = if cfg!(target_os = "windows") {
+        Command::new("ping")
+            .arg(target)
+            .output()?
+    } else {
+        Command::new("ping")
+            .arg("-c") // 指定发送的包数量 (Linux/macOS)
+            .arg("4")
+            .arg(target)
+            .output()?
+    };
+
+    Ok(output)
+}
