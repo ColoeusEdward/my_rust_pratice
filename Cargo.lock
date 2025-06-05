@@ -816,7 +816,7 @@ dependencies = [
 
 [[package]]
 name = "hello_cargo"
-version = "0.1.39"
+version = "0.1.40"
 dependencies = [
  "axum",
  "chrono",
