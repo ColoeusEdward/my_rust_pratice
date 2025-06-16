@@ -118,23 +118,46 @@ pub fn check_network() -> () {
         }
     }
     async fn  relink_wifi() -> (){
-        let mut enigo = Enigo::new(&Settings::default()).unwrap();
-        let _ =enigo.key(Key::LWin, Direction::Click);
-        sleep(Duration::from_secs(1)).await;
-        mouse::move_to(1800, 1055);
-        mouse::click(mouse::Button::Left);
+        // let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        // let _ =enigo.key(Key::LWin, Direction::Click);
+        // sleep(Duration::from_secs(1)).await;
+        // mouse::move_to(1800, 1055);
+        // mouse::click(mouse::Button::Left);
 
-        sleep(Duration::from_secs(1)).await;
-        mouse::move_to(1637, 730);
-        mouse::click(mouse::Button::Left);
+        // sleep(Duration::from_secs(1)).await;
+        // mouse::move_to(1637, 730);
+        // mouse::click(mouse::Button::Left);
 
-        sleep(Duration::from_secs(1)).await;
-        mouse::move_to(1880, 640);
-        mouse::click(mouse::Button::Left);
-        sleep(Duration::from_secs(5)).await;
-        mouse::click(mouse::Button::Left);
+        // sleep(Duration::from_secs(1)).await;
+        // mouse::move_to(1880, 640);
+        // mouse::click(mouse::Button::Left);
+        // sleep(Duration::from_secs(5)).await;
+        // mouse::click(mouse::Button::Left);
 
         // return Ok("".to_string());
+
+        tokio::spawn(async {
+            //查看instance id方法
+            // get-PnpDevice | ? {$_.class -eq "NET"} | sort friendlyname | select friendlyname,instanceid
+            let script = r#"Disable-PnpDevice -InstanceId  "PCI\VEN_10EC&DEV_8812&SUBSYS_881210EC&REV_01\4&33186293&0&00E8""#;
+            // sleep(Duration::from_secs(270)).await;
+            let output = Command::new("powershell.exe")
+                .args(&["-Command", &script])
+                .output()
+                .expect("执行失败");
+            println!("🪵 [me.rs:142]~ token ~ \x1b[0;32moutput\x1b[0m = {}",String::from_utf8_lossy(output.stdout.as_slice()));
+
+            sleep(Duration::from_secs(6)).await;
+
+            let script = r#"Enable-PnpDevice -InstanceId  "PCI\VEN_10EC&DEV_8812&SUBSYS_881210EC&REV_01\4&33186293&0&00E8""#;
+            // sleep(Duration::from_secs(270)).await;
+            let output = Command::new("powershell.exe")
+                .args(&["-Command", &script])
+                .output()
+                .expect("执行失败");
+            println!("🪵 [me.rs:142]~ token ~ \x1b[0;32moutput\x1b[0m = {}",String::from_utf8_lossy(output.stdout.as_slice()));
+
+        });
     }
     let handle = tokio::spawn(async {
         loop {

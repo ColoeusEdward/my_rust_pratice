@@ -1,5 +1,6 @@
 #![allow(unused_variables, dead_code)]
 
+use runas::Command;
 // use std::io;
 // use utf8_slice::slice;
 use tokio::time::{sleep, Duration};
@@ -27,30 +28,19 @@ async fn main() {
         });
     }
 
-    #[cfg(windows)] // 仅在 Windows 平台上编译和运行此代码
-    {
-        use winresource::WindowsResource;
+    if !is_elevated::is_elevated() {
+        println!("不是管理员，尝试以管理员权限重新运行...");
 
-        if let Err(e) = WindowsResource::new()
-                // .set_icon("icon.ico") // 可选：设置应用程序图标的路径
-                .set_manifest(r#"
-    <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-    <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
-        <assemblyIdentity version="1.0.0.0" processorArchitecture="*" name="hallo_cargo" type="win32"/>
-        <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
-            <securityIdentity>
-                <requestedPrivileges>
-                    <requestedExecutionLevel level="requireAdministrator" uiAccess="false"/>
-                </requestedPrivileges>
-            </securityIdentity>
-        </trustInfo>
-    </assembly>
-    "#)
-    .compile()
-    {
-    eprintln!("Error compiling Windows resource: {}", e);
+        // 重启自己，触发 UAC
+        Command::new(std::env::current_exe().unwrap())
+            .gui(true) // 避免命令行窗口弹出
+            .status()
+            .expect("无法重新启动进程");
+
+        return; // 当前进程退出
     }
-    }
+    println!("已获得管理员权限！");
+
     unsafe {
         enums::set_user();
     }
