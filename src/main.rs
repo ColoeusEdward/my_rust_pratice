@@ -5,21 +5,20 @@
 use tokio::time::{sleep, Duration};
 use tokio::{self};
 
-
 // use std::thread::sleep;
 // use std::time::Duration;
 
 mod controllers;
 mod enums;
 mod get_pot_player;
-mod router;
-mod uitl;
-mod ui;
 mod menu;
+mod router;
+mod ui;
+mod uitl;
 
 #[tokio::main]
 async fn main() {
-    if !cfg!(debug_assertions){
+    if !cfg!(debug_assertions) {
         let handle = tokio::spawn(async {
             loop {
                 get_pot_player::save_pot_play_info().await;
@@ -27,11 +26,34 @@ async fn main() {
             }
         });
     }
+
+    #[cfg(windows)] // 仅在 Windows 平台上编译和运行此代码
+    {
+        use winresource::WindowsResource;
+
+        if let Err(e) = WindowsResource::new()
+                // .set_icon("icon.ico") // 可选：设置应用程序图标的路径
+                .set_manifest(r#"
+    <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+        <assemblyIdentity version="1.0.0.0" processorArchitecture="*" name="hallo_cargo" type="win32"/>
+        <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+            <securityIdentity>
+                <requestedPrivileges>
+                    <requestedExecutionLevel level="requireAdministrator" uiAccess="false"/>
+                </requestedPrivileges>
+            </securityIdentity>
+        </trustInfo>
+    </assembly>
+    "#)
+    .compile()
+    {
+    eprintln!("Error compiling Windows resource: {}", e);
+    }
+    }
     unsafe {
         enums::set_user();
     }
-
-
 
     // get_pot_player::save_pot_play_info().await;
     // get_pot_player::get_player_list_file().await;
@@ -47,24 +69,20 @@ async fn main() {
     // let hello = warp::path!("hello" / String)
     //     .map(|name| format!("Hello, {}!", name));
 
-
     // // 组合路由
     // let route = hello;
     let handle = tokio::spawn(async {
         let port: u16 = if cfg!(debug_assertions) { 7655 } else { 7654 };
         let route = router::get_router();
-        warp::serve(route)
-            .run(([0, 0, 0, 0 ], port))
-            .await; 
+        warp::serve(route).run(([0, 0, 0, 0], port)).await;
     });
 
     controllers::me::check_network();
     // let path = enums::get_list_local_list();
     // let line_first = uitl::read_lines(path, 0, 37).unwrap();
     // println!("🪵 [main.rs:60]~ token ~ \x1b[0;32mline_first\x1b[0m = {}", line_first);
-   
+
     menu::start::init_menu();
-    
 }
 
 // type File = String;
