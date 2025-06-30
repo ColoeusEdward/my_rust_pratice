@@ -10,7 +10,9 @@ pub fn init_menu() -> () {
         println!("2. start_soft_server");
         println!("3. show mouse xy");
         println!("4. test");
-        println!("5. 退出");
+        println!("5. 下载pot NT");
+        println!("6. 下载pot ME");
+        println!("7. 退出");
 
         print!("请输入您的选择: ");
         io::stdout().flush().unwrap(); // 确保提示信息立即显示
@@ -47,9 +49,21 @@ pub fn init_menu() -> () {
             //   });
             }
             "5" => {
+                tokio::spawn(async {
+                    get_pot_player::down_server_play_list("nt".to_string()).await.unwrap();
+                });
+                ()
+            }
+            "6" => {
+                tokio::spawn(async {
+                    get_pot_player::down_server_play_list("me".to_string()).await.unwrap();
+                });
+                ()
+            },
+            "7" => {
                 println!("退出程序。");
                 break; // 退出循环
-            }
+            },
             _ => {
                 println!("无效的选择，请重新输入。");
             }

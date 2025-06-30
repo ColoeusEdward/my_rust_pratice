@@ -11,6 +11,8 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use std::process::{Command, Output};
 use std::error::Error;
 
+use crate::enums::{BvInfo, MyData};
+
 
 
 
@@ -263,4 +265,27 @@ pub fn ping(target: &str) -> Result<Output, Box<dyn Error>> {
     };
 
     Ok(output)
+}
+
+pub async fn get_bv_info(bvid: &str) -> BvInfo {
+    let url = format!("https://api.bilibili.com/x/web-interface/view?bvid={}", bvid);
+    let client = reqwest::Client::new();
+    let res = client
+        .get(url)
+        .send()
+        .await;
+    if res.is_ok() {
+        let data: MyData<BvInfo> = res.unwrap().json().await.unwrap();
+        // let resp = res.unwrap().json::<HashMap<String, String>>().await;
+        // let resp = match resp {
+        //     Ok(resp) => resp,
+        //     Err(e) => {
+        //         println!("请求失败,返回json错误：{}", e);
+        //         return map;
+        //     }
+        // };
+        return data.data;
+    }else{
+        return BvInfo::new();
+    }
 }

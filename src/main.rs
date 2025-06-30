@@ -22,24 +22,25 @@ async fn main() {
     if !cfg!(debug_assertions) {
         let handle = tokio::spawn(async {
             loop {
+                
                 get_pot_player::save_pot_play_info().await;
                 sleep(Duration::from_secs(5 * 60)).await;
             }
         });
+
+        if !is_elevated::is_elevated() {
+            println!("不是管理员，尝试以管理员权限重新运行...");
+
+            // 重启自己，触发 UAC
+            Command::new(std::env::current_exe().unwrap())
+                .gui(true) // 避免命令行窗口弹出
+                .status()
+                .expect("无法重新启动进程");
+
+            return; // 当前进程退出
+        }
+        println!("已获得管理员权限！");
     }
-
-    if !is_elevated::is_elevated() {
-        println!("不是管理员，尝试以管理员权限重新运行...");
-
-        // 重启自己，触发 UAC
-        Command::new(std::env::current_exe().unwrap())
-            .gui(true) // 避免命令行窗口弹出
-            .status()
-            .expect("无法重新启动进程");
-
-        return; // 当前进程退出
-    }
-    println!("已获得管理员权限！");
 
     unsafe {
         enums::set_user();
