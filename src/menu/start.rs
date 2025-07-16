@@ -44,9 +44,9 @@ pub fn init_menu() -> () {
                 });
             }
             "4" => {
-            //   tokio::spawn(async {
-            //     controllers::me::check_network().await;
-            //   });
+              tokio::spawn(async {
+                 get_pot_player::upload_play_list().await.unwrap();
+              });
             }
             "5" => {
                 tokio::spawn(async {

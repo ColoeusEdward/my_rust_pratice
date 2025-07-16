@@ -139,3 +139,9 @@ pub struct MyData<T> {
     pub data: T,
     // 其他字段
 }
+
+#[derive(Debug, Deserialize)]
+pub struct MyData2<T> {
+    pub data: MyData<T>,
+    // 其他字段
+}

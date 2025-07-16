@@ -377,7 +377,7 @@ async fn check_play_list_new(
     }
 }
 
-async fn upload_play_list() -> Result<(), Result<(), reqwest::Error>> {
+pub async fn upload_play_list() -> Result<(), Result<(), reqwest::Error>> {
     // 本地文件路径
     let file_path = Path::new(enums::get_list_local_list());
 

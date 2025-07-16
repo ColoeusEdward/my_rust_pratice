@@ -268,14 +268,28 @@ pub fn ping(target: &str) -> Result<Output, Box<dyn Error>> {
 }
 
 pub async fn get_bv_info(bvid: &str) -> BvInfo {
+    let bvid = match bvid.split_once('?') {
+        Some((bvid, _)) => bvid,
+        None => bvid,
+    };
     let url = format!("https://api.bilibili.com/x/web-interface/view?bvid={}", bvid);
+        // println!("🪵 [uitl.rs:174]~ token ~ \x1b[0;32murl\x1b[0m = {}",url);
     let client = reqwest::Client::new();
     let res = client
         .get(url)
         .send()
         .await;
     if res.is_ok() {
-        let data: MyData<BvInfo> = res.unwrap().json().await.unwrap();
+        let tex = res.unwrap().text().await.unwrap();
+        let data:MyData<BvInfo> = match serde_json::from_str(&tex) {
+            Ok(data) => data,
+            Err(e) => {
+                println!("请求失败,返回json错误：{} {}", e, tex);
+                return BvInfo::new();
+            }
+        };
+        // println!("🪵 [uitl.rs:174]~ token ~ \x1b[0;32mdata\x1b[0m = {}",data);
+        // let d: String = res.unwrap().json().await.unwrap();
         // let resp = res.unwrap().json::<HashMap<String, String>>().await;
         // let resp = match resp {
         //     Ok(resp) => resp,
