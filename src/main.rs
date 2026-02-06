@@ -19,14 +19,19 @@ mod uitl;
 
 #[tokio::main]
 async fn main() {
+    unsafe {
+        enums::set_user();
+    }
+
     if !cfg!(debug_assertions) {
-        let handle = tokio::spawn(async {
-            loop {
-                
-                get_pot_player::save_pot_play_info().await;
-                sleep(Duration::from_secs(5 * 60)).await;
-            }
-        });
+        if enums::USER.get().unwrap().as_str() == enums::HW_USER {
+            let handle = tokio::spawn(async {
+                loop {
+                    get_pot_player::save_pot_play_info().await;
+                    sleep(Duration::from_secs(5 * 60)).await;
+                }
+            });
+        }
 
         if !is_elevated::is_elevated() {
             println!("不是管理员，尝试以管理员权限重新运行...");
@@ -40,10 +45,6 @@ async fn main() {
             return; // 当前进程退出
         }
         println!("已获得管理员权限！");
-    }
-
-    unsafe {
-        enums::set_user();
     }
 
     // get_pot_player::save_pot_play_info().await;
@@ -68,7 +69,16 @@ async fn main() {
         warp::serve(route).run(([0, 0, 0, 0], port)).await;
     });
 
-    controllers::me::check_network();
+    if enums::USER.get().unwrap().as_str() == enums::HW_USER {
+        controllers::me::check_network();
+    }
+
+    let handle2 = tokio::spawn(async {
+        loop {
+            controllers::me::play_bingbong();
+            sleep(Duration::from_secs(30)).await;
+        }
+    });
     // let path = enums::get_list_local_list();
     // let line_first = uitl::read_lines(path, 0, 37).unwrap();
     // println!("🪵 [main.rs:60]~ token ~ \x1b[0;32mline_first\x1b[0m = {}", line_first);

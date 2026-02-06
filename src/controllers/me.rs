@@ -2,11 +2,16 @@
 use crate::get_pot_player;
 use crate::uitl;
 use chrono::Local;
+use chrono::Timelike;
 use enigo::*;
 use rsautogui::mouse;
 use std::process::Command;
 use tokio::time::{sleep, Duration};
 use warp::Rejection;
+
+use rodio::{Decoder};
+use std::fs::File;
+
 
 pub async fn charge() -> Result<String, Rejection> {
     let now = Local::now();
@@ -101,7 +106,7 @@ pub fn show_mouse_xy() -> () {
 }
 
 pub fn check_network() -> () {
-    async  fn  check_one() -> () {
+    async fn check_one() -> () {
         let res = uitl::ping("www.baidu.com").unwrap();
         let str2 = String::from_utf8_lossy(&res.stdout).clone();
         let str = str2.trim().to_string();
@@ -117,7 +122,7 @@ pub fn check_network() -> () {
             relink_wifi().await;
         }
     }
-    async fn  relink_wifi() -> (){
+    async fn relink_wifi() -> () {
         // let mut enigo = Enigo::new(&Settings::default()).unwrap();
         // let _ =enigo.key(Key::LWin, Direction::Click);
         // sleep(Duration::from_secs(1)).await;
@@ -145,7 +150,10 @@ pub fn check_network() -> () {
                 .args(&["-Command", &script])
                 .output()
                 .expect("执行失败");
-            println!("🪵 [me.rs:142]~ token ~ \x1b[0;32moutput\x1b[0m = {}",String::from_utf8_lossy(output.stdout.as_slice()));
+            println!(
+                "🪵 [me.rs:142]~ token ~ \x1b[0;32moutput\x1b[0m = {}",
+                String::from_utf8_lossy(output.stdout.as_slice())
+            );
 
             sleep(Duration::from_secs(6)).await;
 
@@ -155,8 +163,10 @@ pub fn check_network() -> () {
                 .args(&["-Command", &script])
                 .output()
                 .expect("执行失败");
-            println!("🪵 [me.rs:142]~ token ~ \x1b[0;32moutput\x1b[0m = {}",String::from_utf8_lossy(output.stdout.as_slice()));
-
+            println!(
+                "🪵 [me.rs:142]~ token ~ \x1b[0;32moutput\x1b[0m = {}",
+                String::from_utf8_lossy(output.stdout.as_slice())
+            );
         });
     }
     let handle = tokio::spawn(async {
@@ -166,4 +176,33 @@ pub fn check_network() -> () {
         }
     });
     // Ok(format!("********"))
+}
+
+pub fn play_bingbong() -> () {
+    // 获取当前的本地时间
+    let now = Local::now();
+    // 获取小时和分钟
+    let hour = now.hour();
+    let minute = now.minute();
+    println!("当前时间是: {:02}:{:02}", hour, minute);
+
+    // 检查是否是 21:30
+    if hour == 21 && minute == 30 {
+        println!("到时间了！现在是 21:30。");
+        let stream_handle =
+            rodio::OutputStreamBuilder::open_default_stream().expect("open default audio stream");
+        let sink = rodio::Sink::connect_new(&stream_handle.mixer());
+        // Load a sound from a file, using a path relative to Cargo.toml
+        let file = File::open("src/ui/bingbongbangbong.MP3").unwrap();
+        // Decode that sound file into a source
+        let source = Decoder::try_from(file).unwrap();
+        // Play the sound directly on the device
+        stream_handle.mixer().add(source);
+
+        // The sound plays in a separate audio thread,
+        // so we need to keep the main thread alive while it's playing.
+        std::thread::sleep(std::time::Duration::from_secs(5));
+    } else {
+        println!("还没到时间，或者已经过了。");
+    }
 }

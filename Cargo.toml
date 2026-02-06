@@ -1,6 +1,6 @@
 [package]
 name = "hello_cargo"
-version = "0.1.46"
+version = "0.1.47"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -30,3 +30,4 @@ tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 enigo = "0.3.0"
 runas = "1.2.0"
 is_elevated = "0.1.2"
+rodio = "0.21.1"
