@@ -9,9 +9,8 @@ use std::process::Command;
 use tokio::time::{sleep, Duration};
 use warp::Rejection;
 
-use rodio::{Decoder};
+use rodio::Decoder;
 use std::fs::File;
-
 
 pub async fn charge() -> Result<String, Rejection> {
     let now = Local::now();
@@ -192,8 +191,19 @@ pub fn play_bingbong() -> () {
         let stream_handle =
             rodio::OutputStreamBuilder::open_default_stream().expect("open default audio stream");
         let sink = rodio::Sink::connect_new(&stream_handle.mixer());
+
+        // 【关键步骤 1】：获取当前可执行文件 (.exe) 的完整路径
+        let mut music_path = std::env::current_exe().unwrap();
+
+        // 【关键步骤 2】：去掉文件名，只保留目录路径
+        // 例如：从 "C:\Game\release\game.exe" 变成 "C:\Game\release\"
+        music_path.pop();
+
+        // 【关键步骤 3】：拼接音频文件名
+        // 建议把资源放在一个 assets 文件夹里，更整洁，这里假设就在同级目录
+        music_path.push("bingbongbangbong.MP3");
         // Load a sound from a file, using a path relative to Cargo.toml
-        let file = File::open("src/ui/bingbongbangbong.MP3").unwrap();
+        let file = File::open(music_path).unwrap();
         // Decode that sound file into a source
         let source = Decoder::try_from(file).unwrap();
         // Play the sound directly on the device
