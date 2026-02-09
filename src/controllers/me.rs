@@ -183,7 +183,7 @@ pub fn play_bingbong() -> () {
     // 获取小时和分钟
     let hour = now.hour();
     let minute = now.minute();
-    println!("当前时间是: {:02}:{:02}", hour, minute);
+    // println!("当前时间是: {:02}:{:02}", hour, minute);
 
     // 检查是否是 21:30
     if hour == 21 && minute == 30 {
@@ -213,6 +213,6 @@ pub fn play_bingbong() -> () {
         // so we need to keep the main thread alive while it's playing.
         std::thread::sleep(std::time::Duration::from_secs(5));
     } else {
-        println!("还没到时间，或者已经过了。");
+        // println!("还没到时间，或者已经过了。");
     }
 }
