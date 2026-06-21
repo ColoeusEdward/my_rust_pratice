@@ -3,14 +3,20 @@ use crate::get_pot_player;
 use crate::uitl;
 use chrono::Local;
 use chrono::Timelike;
+use edge_tts_rust::Boundary;
+use edge_tts_rust::EdgeTtsClient;
+use edge_tts_rust::SpeakOptions;
 use enigo::*;
 use rsautogui::mouse;
+use serde::Deserialize;
 use std::process::Command;
+use tokio::task;
 use tokio::time::{sleep, Duration};
 use warp::Rejection;
 
 use rodio::Decoder;
 use std::fs::File;
+use std::io::Cursor;
 
 pub async fn charge() -> Result<String, Rejection> {
     let now = Local::now();
@@ -95,6 +101,9 @@ pub async fn potplay(s: String) -> Result<String, Rejection> {
 }
 
 pub async fn test() -> Result<String, Rejection> {
+    Ok(format!("********"))
+}
+pub async fn test2(s: String) -> Result<String, Rejection> {
     Ok(format!("********"))
 }
 
@@ -215,4 +224,65 @@ pub fn play_bingbong() -> () {
     } else {
         // println!("还没到时间，或者已经过了。");
     }
+}
+
+#[derive(Deserialize)]
+pub struct PlayTextData {
+    str: String,
+}
+pub async fn play_text(dat: PlayTextData) -> Result<String, Rejection> {
+    // dat: PlayTextData
+    let res = tokio::spawn(async move {
+        let client = EdgeTtsClient::new().unwrap();
+        let result = client
+            .synthesize(
+                dat.str.as_str(),
+                // "我早已麻痹",
+                SpeakOptions {
+                    voice: "zh-CN-XiaoxiaoNeural".into(),
+                    boundary: Boundary::Sentence,
+                    rate: "+20%".into(),
+                    volume: "-10%".into(),
+                    ..SpeakOptions::default()
+                },
+            )
+            .await
+            .unwrap();
+
+        println!("audio bytes: {}", result.audio.len());
+        println!("boundaries: {}", result.boundaries.len());
+        play_audio_from_vec(result.audio).await;
+        // Ok(())
+    });
+
+    match res.await {
+        Ok(res) => Ok(format!("play_text 成功")),
+        Err(e) => {
+            println!("play_text 失败: {}", e);
+            return Ok(format!("play_text 失败"));
+        }
+    }
+}
+
+async fn play_audio_from_vec(audio_data: Vec<u8>) {
+    let res = task::spawn_blocking(move || {
+        // 1. 获取默认输出设备的句柄
+        // _stream 必须保持存活，否则声音会立即停止
+        let stream_handle =
+            rodio::OutputStreamBuilder::open_default_stream().expect("open default audio stream");
+        let sink = rodio::Sink::connect_new(&stream_handle.mixer());
+
+        // 3. 将 Vec<u8> 包装在 Cursor 中，因为它需要实现 Read + Seek
+        let cursor = Cursor::new(audio_data);
+
+        // 4. 解码音频数据（自动识别 MP3, WAV, Vorbis, Flac 等）
+        let source = Decoder::new(cursor).unwrap();
+
+        // 5. 将音频源放入 Sink 播放
+        sink.append(source);
+
+        // 6. 阻塞当前线程直到音频播放完毕（否则函数结束释放资源声音就没了）
+        sink.sleep_until_end();
+    });
+    res.await.unwrap();
 }
