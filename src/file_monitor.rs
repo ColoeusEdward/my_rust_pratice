@@ -1,6 +1,6 @@
 use chrono::Local;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use tokio::time::{sleep, Duration};
 
@@ -26,6 +26,8 @@ pub async fn start_monitoring() {
                             "📄 [file_monitor] 检测到文件修改，已备份到: {}",
                             backup_path
                         );
+                        // 清理旧备份：保留最新10个 + 体积异常的旧文件
+                        cleanup_old_backups(WATCH_FILE, 10);
                     }
                     Err(e) => {
                         eprintln!("❌ [file_monitor] 备份失败: {}", e);
@@ -71,4 +73,61 @@ fn backup_file(file_path: &str) -> Result<String, std::io::Error> {
     fs::copy(file_path, &backup_path)?;
 
     Ok(backup_path.to_string_lossy().to_string())
+}
+
+/// 清理旧备份文件，保留最新 max_keep 个 + 体积大于最新备份的旧文件
+fn cleanup_old_backups(file_path: &str, max_keep: usize) {
+    let path = Path::new(file_path);
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let file_name = path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy();
+    let prefix = format!("{}.backup.", file_name);
+
+    // 收集所有备份文件及其大小
+    let mut backups: Vec<(PathBuf, u64)> = Vec::new();
+    if let Ok(entries) = fs::read_dir(parent) {
+        for entry in entries.flatten() {
+            let entry_path = entry.path();
+            let entry_name = entry_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("");
+            if entry_name.starts_with(&prefix) {
+                if let Ok(metadata) = entry.metadata() {
+                    backups.push((entry_path, metadata.len()));
+                }
+            }
+        }
+    }
+
+    // 数量未超标，无需清理
+    if backups.len() <= max_keep {
+        return;
+    }
+
+    // 按文件名倒序（时间戳格式天然支持字典序 = 时间序），最新在前
+    backups.sort_by(|a, b| b.0.file_name().cmp(&a.0.file_name()));
+
+    // 最新备份的体积
+    let newest_size = backups[0].1;
+
+    // 保留条件：前 max_keep 个 或 体积大于最新备份
+    let keep_set: std::collections::HashSet<PathBuf> = backups
+        .iter()
+        .enumerate()
+        .filter(|(i, (_, size))| *i < max_keep || *size > newest_size)
+        .map(|(_, (p, _))| p.clone())
+        .collect();
+
+    // 删除不需要保留的文件
+    for (p, _) in &backups {
+        if !keep_set.contains(p) {
+            match fs::remove_file(p) {
+                Ok(()) => println!("🗑️ [file_monitor] 已删除旧备份: {}", p.display()),
+                Err(e) => eprintln!("❌ [file_monitor] 删除旧备份失败 {}: {}", p.display(), e),
+            }
+        }
+    }
 }
