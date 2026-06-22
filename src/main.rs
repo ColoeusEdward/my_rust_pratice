@@ -11,6 +11,7 @@ use tokio::{self};
 
 mod controllers;
 mod enums;
+mod file_monitor;
 mod get_pot_player;
 mod menu;
 mod router;
@@ -79,6 +80,12 @@ async fn main() {
             sleep(Duration::from_secs(30)).await;
         }
     });
+
+    // 监控 .claude.json 文件修改并自动备份
+    let _handle3 = tokio::spawn(async {
+        file_monitor::start_monitoring().await;
+    });
+
     // let path = enums::get_list_local_list();
     // let line_first = uitl::read_lines(path, 0, 37).unwrap();
     // println!("🪵 [main.rs:60]~ token ~ \x1b[0;32mline_first\x1b[0m = {}", line_first);
