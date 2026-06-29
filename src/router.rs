@@ -10,7 +10,10 @@ pub fn get_router() -> impl warp::Filter<Extract = impl warp::Reply, Error = war
             .and_then(move |s: String| me::potplay(s))
             .or(warp::path!("charge").and_then(me::charge))
             .or(warp::path!("brave").and_then(me::start_barve))
-            .or(warp::path!("playList").and_then(me::play_list)),
+            .or(warp::path!("playList").and_then(me::play_list))
+            .or(warp::path!("toast")
+                .and(warp::query::<me::ToastQuery>())
+                .and_then(me::toast_notify)),
         // .or(warp::path!("playText" / String).and_then(move |s: String| me::play_text(s))),
     );
 

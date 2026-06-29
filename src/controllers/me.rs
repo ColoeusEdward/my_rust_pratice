@@ -10,6 +10,9 @@ use enigo::*;
 use rsautogui::mouse;
 use serde::Deserialize;
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::thread::{self, JoinHandle};
 use tokio::task;
 use tokio::time::{sleep, Duration};
 use warp::Rejection;
@@ -17,6 +20,9 @@ use warp::Rejection;
 use rodio::Decoder;
 use std::fs::File;
 use std::io::Cursor;
+use winapi::um::winuser::{GetAsyncKeyState, VK_MENU};
+
+const VK_B: i32 = 0x42;
 
 pub async fn charge() -> Result<String, Rejection> {
     let now = Local::now();
@@ -98,6 +104,46 @@ pub async fn play_list() -> Result<String, Rejection> {
 
 pub async fn potplay(s: String) -> Result<String, Rejection> {
     Ok(s)
+}
+
+#[derive(Deserialize)]
+pub struct ToastQuery {
+    text: String,
+}
+
+pub async fn toast_notify(query: ToastQuery) -> Result<String, Rejection> {
+    let text = query.text;
+    let code = longest_verification_code(&text);
+
+    let res = task::spawn_blocking({
+        let text = text.clone();
+        let code = code.clone();
+
+        move || {
+            show_windows_toast(&text)?;
+
+            if let Some(code) = code {
+                let mut clipboard =
+                    arboard::Clipboard::new().map_err(|e| format!("剪贴板打开失败: {}", e))?;
+                clipboard
+                    .set_text(code)
+                    .map_err(|e| format!("剪贴板写入失败: {}", e))?;
+            }
+
+            Ok::<(), String>(())
+        }
+    })
+    .await;
+
+    match res {
+        Ok(Ok(())) => match code {
+            Some(code) => Ok(format!("toast 成功，验证码已复制: {}", code)),
+            None if text.contains("验证码") => Ok("toast 成功，未找到验证码数字".to_string()),
+            None => Ok("toast 成功".to_string()),
+        },
+        Ok(Err(e)) => Ok(format!("toast 失败: {}", e)),
+        Err(e) => Ok(format!("toast 失败: {}", e)),
+    }
 }
 
 pub async fn test() -> Result<String, Rejection> {
@@ -270,7 +316,7 @@ async fn play_audio_from_vec(audio_data: Vec<u8>) {
         // _stream 必须保持存活，否则声音会立即停止
         let stream_handle =
             rodio::OutputStreamBuilder::open_default_stream().expect("open default audio stream");
-        let sink = rodio::Sink::connect_new(&stream_handle.mixer());
+        let sink = Arc::new(rodio::Sink::connect_new(&stream_handle.mixer()));
 
         // 3. 将 Vec<u8> 包装在 Cursor 中，因为它需要实现 Read + Seek
         let cursor = Cursor::new(audio_data);
@@ -280,9 +326,204 @@ async fn play_audio_from_vec(audio_data: Vec<u8>) {
 
         // 5. 将音频源放入 Sink 播放
         sink.append(source);
+        let stop_hotkey_listener = Arc::new(AtomicBool::new(false));
+        let hotkey_listener =
+            start_audio_hotkey_listener(Arc::clone(&sink), Arc::clone(&stop_hotkey_listener));
 
         // 6. 阻塞当前线程直到音频播放完毕（否则函数结束释放资源声音就没了）
         sink.sleep_until_end();
+        stop_hotkey_listener.store(true, Ordering::SeqCst);
+        let _ = hotkey_listener.join();
     });
     res.await.unwrap();
+}
+
+fn start_audio_hotkey_listener(sink: Arc<rodio::Sink>, stop: Arc<AtomicBool>) -> JoinHandle<()> {
+    thread::spawn(move || {
+        let mut was_alt_b_down = false;
+
+        while !stop.load(Ordering::SeqCst) {
+            if alt_b_pressed_edge(is_key_down(VK_MENU), is_key_down(VK_B), &mut was_alt_b_down) {
+                if sink.is_paused() {
+                    sink.play();
+                    println!("Alt+B pressed: resume audio");
+                } else {
+                    sink.pause();
+                    println!("Alt+B pressed: pause audio");
+                }
+            }
+
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    })
+}
+
+fn alt_b_pressed_edge(alt_down: bool, b_down: bool, was_down: &mut bool) -> bool {
+    let is_down = alt_down && b_down;
+    let pressed = is_down && !*was_down;
+    *was_down = is_down;
+    pressed
+}
+
+fn is_key_down(vkey: i32) -> bool {
+    unsafe { (GetAsyncKeyState(vkey) as u16 & 0x8000) != 0 }
+}
+
+fn longest_verification_code(text: &str) -> Option<String> {
+    if !text.contains("验证码") {
+        return None;
+    }
+
+    let mut best: Option<&str> = None;
+    let mut run_start: Option<usize> = None;
+
+    for (idx, ch) in text.char_indices() {
+        if ch.is_ascii_digit() {
+            if run_start.is_none() {
+                run_start = Some(idx);
+            }
+            continue;
+        }
+
+        if let Some(start) = run_start.take() {
+            best = choose_longer_code(best, &text[start..idx]);
+        }
+    }
+
+    if let Some(start) = run_start {
+        best = choose_longer_code(best, &text[start..]);
+    }
+
+    best.map(|code| code.to_string())
+}
+
+fn choose_longer_code<'a>(best: Option<&'a str>, candidate: &'a str) -> Option<&'a str> {
+    if candidate.len() < 4 {
+        return best;
+    }
+
+    match best {
+        Some(current) if current.len() >= candidate.len() => best,
+        _ => Some(candidate),
+    }
+}
+
+fn show_windows_toast(text: &str) -> Result<(), String> {
+    let script = windows_toast_script(text);
+
+    let output = Command::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            &script,
+        ])
+        .output()
+        .map_err(|e| format!("PowerShell 启动失败: {}", e))?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        if stderr.is_empty() {
+            Err(format!("PowerShell 退出码: {}", output.status))
+        } else {
+            Err(stderr)
+        }
+    }
+}
+
+fn windows_toast_script(text: &str) -> String {
+    let title = escape_powershell_single_quoted("hello_cargo");
+    let body = escape_powershell_single_quoted(text);
+
+    format!(
+        r#"
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+$notify = New-Object System.Windows.Forms.NotifyIcon
+$notify.Icon = [System.Drawing.SystemIcons]::Information
+$notify.BalloonTipIcon = [System.Windows.Forms.ToolTipIcon]::Info
+$notify.BalloonTipTitle = '{title}'
+$notify.BalloonTipText = '{body}'
+$notify.Visible = $true
+$notify.ShowBalloonTip(5000)
+Start-Sleep -Milliseconds 5500
+$notify.Dispose()
+"#
+    )
+}
+
+fn escape_powershell_single_quoted(value: &str) -> String {
+    value
+        .replace('\'', "&apos;")
+        .replace(['\r', '\n'], " ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hotkey_edge_triggers_once_while_alt_b_is_held() {
+        let mut was_down = false;
+
+        assert!(alt_b_pressed_edge(true, true, &mut was_down));
+        assert!(!alt_b_pressed_edge(true, true, &mut was_down));
+        assert!(!alt_b_pressed_edge(true, true, &mut was_down));
+    }
+
+    #[test]
+    fn hotkey_edge_rearms_after_alt_b_is_released() {
+        let mut was_down = false;
+
+        assert!(alt_b_pressed_edge(true, true, &mut was_down));
+        assert!(!alt_b_pressed_edge(false, false, &mut was_down));
+        assert!(alt_b_pressed_edge(true, true, &mut was_down));
+    }
+
+    #[test]
+    fn verification_code_is_none_without_keyword() {
+        assert_eq!(longest_verification_code("登录代码 123456"), None);
+    }
+
+    #[test]
+    fn verification_code_extracts_four_or_more_digits() {
+        assert_eq!(
+            longest_verification_code("你的验证码是1234，请勿泄露"),
+            Some("1234".to_string())
+        );
+    }
+
+    #[test]
+    fn verification_code_chooses_longest_digit_run() {
+        assert_eq!(
+            longest_verification_code("验证码 1234 订单 987654"),
+            Some("987654".to_string())
+        );
+    }
+
+    #[test]
+    fn verification_code_keeps_first_when_lengths_tie() {
+        assert_eq!(
+            longest_verification_code("验证码 12345 和 67890 都出现"),
+            Some("12345".to_string())
+        );
+    }
+
+    #[test]
+    fn verification_code_ignores_short_digit_runs() {
+        assert_eq!(longest_verification_code("验证码 12 345"), None);
+    }
+
+    #[test]
+    fn toast_script_uses_notify_icon_balloon_tip() {
+        let script = windows_toast_script("测试通知");
+
+        assert!(script.contains("System.Windows.Forms"));
+        assert!(script.contains("NotifyIcon"));
+        assert!(script.contains("ShowBalloonTip"));
+        assert!(script.contains("测试通知"));
+    }
 }
