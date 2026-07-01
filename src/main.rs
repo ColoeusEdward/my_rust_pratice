@@ -81,7 +81,7 @@ async fn main() {
         }
     });
 
-    // 监控 Claude config files 修改并自动备份
+    // 监控 config files 修改并自动备份
     let _handle3 = tokio::spawn(async {
         file_monitor::start_monitoring().await;
     });

@@ -4,9 +4,10 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use tokio::time::{sleep, Duration};
 
-const WATCH_FILES: [&str; 2] = [
+const WATCH_FILES: [&str; 3] = [
     r"C:\Users\11038\.claude.json",
     r"C:\Users\11038\.claude\settings.json",
+    r"C:\Users\11038\.config\opencode\opencode.json",
 ];
 const POLL_INTERVAL: u64 = 10; // 每10秒检查一次
 const IMAGE_CLEANUP_DIR: &str = r"D:\MCode\Rust";
@@ -230,6 +231,11 @@ mod tests {
                 PathBuf::from(r"D:\MCode\Rust\image_00.png"),
             ]
         );
+    }
+
+    #[test]
+    fn watches_opencode_config_for_backups() {
+        assert!(WATCH_FILES.contains(&r"C:\Users\11038\.config\opencode\opencode.json"));
     }
 
     #[test]
