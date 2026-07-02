@@ -33,14 +33,23 @@ pub async fn axum_init() {
     // Any request starting with `/soft` will be handled by ServeDir,
     // looking for files relative to `directory_to_serve`.
     let app = Router::new().nest_service(serve_path_prefix, get_service(serve_dir_service));
-    
+
     // Define the address to listen on
     let addr = SocketAddr::from(([0, 0, 0, 0], 8654)); // Listen on all interfaces, port 3000
-    tracing::debug!("Serving files from '{}' at http://{}{}", directory_to_serve, addr, serve_path_prefix);
+    tracing::debug!(
+        "Serving files from '{}' at http://{}{}",
+        directory_to_serve,
+        addr,
+        serve_path_prefix
+    );
     println!("Listening on http://{}", addr);
     println!("Serving files from directory: {}", directory_to_serve);
-    println!("Access files under: http://{}:{}{}/", "127.0.0.1", addr.port(), serve_path_prefix);
-
+    println!(
+        "Access files under: http://{}:{}{}/",
+        "127.0.0.1",
+        addr.port(),
+        serve_path_prefix
+    );
 
     // Run the server
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();

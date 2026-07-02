@@ -456,9 +456,7 @@ $notify.Dispose()
 }
 
 fn escape_powershell_single_quoted(value: &str) -> String {
-    value
-        .replace('\'', "&apos;")
-        .replace(['\r', '\n'], " ")
+    value.replace('\'', "&apos;").replace(['\r', '\n'], " ")
 }
 
 #[cfg(test)]

@@ -143,9 +143,7 @@ pub async fn save_pot_play_info() {
     // }
 }
 
-pub fn save_pot_play_info2() {
-
-}
+pub fn save_pot_play_info2() {}
 
 pub fn get_pot_first_info() -> (String, String, String) {
     let path = enums::get_list_local_list();
@@ -254,8 +252,8 @@ pub async fn get_player_list_file() -> Result<(), std::io::Error> {
         // let split_str = now_title.split(" ").collect::<Vec<_>>(); //
         // let time_str_list = &split_str[1..3];
         // let now_play_ts = uitl::transform_wuyang_time_ts(time_str_list); //日期
-         let ts = "";
-         let now_play_ts = bv_info.pubdate;
+        let ts = "";
+        let now_play_ts = bv_info.pubdate;
         println!(
                 "🪵 [get_pot_player.rs:142]~ token ~ \x1b[0;32mtime_str_list\x1b[0m = {} {} {} {} {} {}",
                 ts, title, bv, play_time, now_play_ts, now_title
@@ -271,7 +269,7 @@ pub async fn get_player_list_file() -> Result<(), std::io::Error> {
         // .await;
 
         // if is_new {
-            upload_play_list().await.unwrap();
+        upload_play_list().await.unwrap();
         // } else {
         //     down_server_play_list().await.unwrap();
         // }

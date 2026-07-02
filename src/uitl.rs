@@ -1,22 +1,17 @@
 // use std::str::FromStr;
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+use screenshots::Screen;
+use std::error::Error;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::io::{Read, Seek, SeekFrom};
 use std::os::raw::c_ulong;
 use std::path::Path;
-use winapi::um::winbase::GetUserNameA;
-use screenshots::Screen;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use std::process::{Command, Output};
-use std::error::Error;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use winapi::um::winbase::GetUserNameA;
 
 use crate::enums::{BvInfo, MyData};
-
-
-
-
-
 
 pub fn format_duration_extended(milliseconds: u64) -> String {
     let total_seconds = milliseconds / 1000;
@@ -101,7 +96,7 @@ pub fn read_first_lines<P: AsRef<Path>>(path: P, num: usize) -> std::io::Result<
     let mut line_count = 0;
 
     // 正向逐字节读取
-    while pos < file_size-1 && line_count < num {
+    while pos < file_size - 1 && line_count < num {
         pos += 1;
         file.seek(SeekFrom::Start(pos))?;
         let mut byte = [0u8; 1];
@@ -149,7 +144,7 @@ pub fn read_lines<P: AsRef<Path>>(
     let mut line_count = 0;
 
     // 正向逐字节读取
-    while pos < file_size-1 && line_count < end_num {
+    while pos < file_size - 1 && line_count < end_num {
         pos += 1;
         file.seek(SeekFrom::Start(pos))?;
         let mut byte = [0u8; 1];
@@ -174,7 +169,6 @@ pub fn read_lines<P: AsRef<Path>>(
     // buffer.reverse(); // 恢复正向顺序
     let content = String::from_utf8_lossy(&buffer).into_owned();
     let lines: Vec<&str> = content.lines().collect();
-  
 
     // 提取最后n行
     // let start = if lines.len() >= num {
@@ -231,12 +225,18 @@ pub fn find_string_coordinates<P: AsRef<Path>>(
 pub fn screen_shot() -> () {
     let start = Instant::now();
     let screens = Screen::all().unwrap();
-    let ts= SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
     for screen in screens {
         println!("Capturer {:?}", screen);
         let image = screen.capture().unwrap();
         image
-            .save(format!("D:\\MCode\\Rust/{}-{}.png", screen.display_info.id,ts))
+            .save(format!(
+                "D:\\MCode\\Rust/{}-{}.png",
+                screen.display_info.id, ts
+            ))
             .unwrap();
 
         // image = screen.capture_area(300, 300, 300, 300).unwrap();
@@ -245,17 +245,13 @@ pub fn screen_shot() -> () {
         //     .unwrap();
     }
 
-
     println!("运行耗时: {:?}", start.elapsed());
     // Ok("截图成功".to_string())
 }
 
-
 pub fn ping(target: &str) -> Result<Output, Box<dyn Error>> {
     let output = if cfg!(target_os = "windows") {
-        Command::new("ping")
-            .arg(target)
-            .output()?
+        Command::new("ping").arg(target).output()?
     } else {
         Command::new("ping")
             .arg("-c") // 指定发送的包数量 (Linux/macOS)
@@ -272,16 +268,16 @@ pub async fn get_bv_info(bvid: &str) -> BvInfo {
         Some((bvid, _)) => bvid,
         None => bvid,
     };
-    let url = format!("https://api.bilibili.com/x/web-interface/view?bvid={}", bvid);
-        // println!("🪵 [uitl.rs:174]~ token ~ \x1b[0;32murl\x1b[0m = {}",url);
+    let url = format!(
+        "https://api.bilibili.com/x/web-interface/view?bvid={}",
+        bvid
+    );
+    // println!("🪵 [uitl.rs:174]~ token ~ \x1b[0;32murl\x1b[0m = {}",url);
     let client = reqwest::Client::new();
-    let res = client
-        .get(url)
-        .send()
-        .await;
+    let res = client.get(url).send().await;
     if res.is_ok() {
         let tex = res.unwrap().text().await.unwrap();
-        let data:MyData<BvInfo> = match serde_json::from_str(&tex) {
+        let data: MyData<BvInfo> = match serde_json::from_str(&tex) {
             Ok(data) => data,
             Err(e) => {
                 println!("请求失败,返回json错误：{} {}", e, tex);
@@ -299,7 +295,7 @@ pub async fn get_bv_info(bvid: &str) -> BvInfo {
         //     }
         // };
         return data.data;
-    }else{
+    } else {
         return BvInfo::new();
     }
 }
