@@ -14,6 +14,7 @@ mod enums;
 mod file_monitor;
 mod get_pot_player;
 mod menu;
+mod ocr;
 mod router;
 mod ui;
 mod uitl;
@@ -89,6 +90,11 @@ async fn main() {
     // 每天清理 D:\MCode\Rust 第一层图片，只保留最新10个
     let _handle4 = tokio::spawn(async {
         file_monitor::start_daily_image_cleanup().await;
+    });
+
+    // 每天早上8点检查最新截图，OCR识别失败字样并弹窗提醒
+    let _handle5 = tokio::spawn(async {
+        file_monitor::start_daily_screenshot_ocr_check().await;
     });
 
     // let path = enums::get_list_local_list();

@@ -1,6 +1,7 @@
-use chrono::Local;
+use chrono::{DateTime, Local, TimeZone};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::time::SystemTime;
 use tokio::time::{sleep, Duration};
 
@@ -13,6 +14,8 @@ const POLL_INTERVAL: u64 = 10; // 每10秒检查一次
 const IMAGE_CLEANUP_DIR: &str = r"D:\MCode\Rust";
 const IMAGE_KEEP_COUNT: usize = 10;
 const IMAGE_CLEANUP_INTERVAL: u64 = 24 * 60 * 60;
+const SCREENSHOT_PREFIX: &str = "1685731124";
+const OCR_FAILURE_KEYWORD: &str = "再度";
 
 /// 监控文件是否被修改，一旦变化就备份
 pub async fn start_monitoring() {
@@ -79,6 +82,123 @@ pub async fn start_daily_image_cleanup() {
 
         sleep(Duration::from_secs(IMAGE_CLEANUP_INTERVAL)).await;
     }
+}
+
+/// 每天早上8点检查最新的 1685731124 开头截图，OCR识别失败字样并弹窗提醒
+pub async fn start_daily_screenshot_ocr_check() {
+    loop {
+        sleep(duration_until_next_8am(Local::now())).await;
+
+        if let Err(e) = run_screenshot_ocr_check_once() {
+            eprintln!("❌ [file_monitor] 截图OCR检查失败: {}", e);
+        }
+    }
+}
+
+/// 计算距离下一个当天/次日 8:00 的时长
+fn duration_until_next_8am(now: DateTime<Local>) -> Duration {
+    let today_8am = now
+        .date_naive()
+        .and_hms_opt(8, 0, 0)
+        .and_then(|naive| Local.from_local_datetime(&naive).single())
+        .unwrap_or(now);
+
+    let next_8am = if now < today_8am {
+        today_8am
+    } else {
+        today_8am + chrono::Duration::days(1)
+    };
+
+    (next_8am - now).to_std().unwrap_or(Duration::from_secs(0))
+}
+
+fn run_screenshot_ocr_check_once() -> Result<(), String> {
+    let Some(image_path) =
+        latest_screenshot_by_prefix(Path::new(IMAGE_CLEANUP_DIR), SCREENSHOT_PREFIX)
+            .map_err(|e| format!("查找最新截图失败: {}", e))?
+    else {
+        println!(
+            "📄 [file_monitor] 未找到 {} 开头的截图，跳过OCR检查",
+            SCREENSHOT_PREFIX
+        );
+        return Ok(());
+    };
+
+    let text = crate::ocr::run_umi_ocr(&image_path)?;
+
+    if contains_failure_keyword(&text) {
+        show_ocr_failure_popup(&image_path, &text)?;
+    } else {
+        println!(
+            "📄 [file_monitor] 截图OCR检查通过，未发现\"{}\"字样: {}",
+            OCR_FAILURE_KEYWORD,
+            image_path.display()
+        );
+    }
+
+    Ok(())
+}
+
+/// 找出目录中以 prefix 开头、最后修改时间最新的文件
+fn latest_screenshot_by_prefix(dir: &Path, prefix: &str) -> std::io::Result<Option<PathBuf>> {
+    let mut files: Vec<(PathBuf, SystemTime)> = Vec::new();
+
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let metadata = entry.metadata()?;
+
+        if metadata.is_file() {
+            files.push((entry.path(), metadata.modified()?));
+        }
+    }
+
+    Ok(pick_latest_matching_file(files, prefix))
+}
+
+fn pick_latest_matching_file(files: Vec<(PathBuf, SystemTime)>, prefix: &str) -> Option<PathBuf> {
+    files
+        .into_iter()
+        .filter(|(path, _)| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| name.starts_with(prefix))
+                .unwrap_or(false)
+        })
+        .max_by_key(|(_, modified)| *modified)
+        .map(|(path, _)| path)
+}
+
+fn contains_failure_keyword(text: &str) -> bool {
+    text.contains(OCR_FAILURE_KEYWORD)
+}
+
+fn show_ocr_failure_popup(image_path: &Path, ocr_text: &str) -> Result<(), String> {
+    let message = crate::controllers::me::escape_powershell_single_quoted(&format!(
+        "检测到截图 {} OCR识别结果包含\"{}\"字样：\n{}",
+        image_path.display(),
+        OCR_FAILURE_KEYWORD,
+        ocr_text
+    ));
+    let script = format!(
+        r#"$ws = New-Object -ComObject WScript.Shell; $ws.popup('{}', 0, '截图OCR检测', 0 + 48)"#,
+        message
+    );
+
+    spawn_powershell_script(&script)
+}
+
+fn spawn_powershell_script(script: &str) -> Result<(), String> {
+    Command::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            script,
+        ])
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("弹窗启动失败: {}", e))
 }
 
 /// 获取文件的最后修改时间
@@ -209,7 +329,25 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{Duration, UNIX_EPOCH};
+    use std::time::{Duration, Instant, UNIX_EPOCH};
+
+    #[test]
+    #[ignore]
+    fn manual_verify_screenshot_ocr_check_against_fail_test_image() {
+        run_screenshot_ocr_check_once().unwrap();
+    }
+
+    #[test]
+    fn powershell_popup_launcher_returns_without_waiting_for_script_completion() {
+        let started = Instant::now();
+
+        spawn_powershell_script(r#"Start-Sleep -Seconds 2"#).unwrap();
+
+        assert!(
+            started.elapsed() < Duration::from_millis(500),
+            "PowerShell launcher should return immediately without waiting for script completion"
+        );
+    }
 
     #[test]
     fn selects_only_old_images_after_newest_ten() {
@@ -278,5 +416,58 @@ mod tests {
                 PathBuf::from(r"D:\MCode\Rust\c.png"),
             ]
         );
+    }
+
+    #[test]
+    fn picks_newest_file_matching_prefix() {
+        let files = vec![
+            (
+                PathBuf::from(r"D:\MCode\Rust\1685731124-100.png"),
+                UNIX_EPOCH + Duration::from_secs(100),
+            ),
+            (
+                PathBuf::from(r"D:\MCode\Rust\1685731124-200.png"),
+                UNIX_EPOCH + Duration::from_secs(200),
+            ),
+            (
+                PathBuf::from(r"D:\MCode\Rust\2776250164-300.png"),
+                UNIX_EPOCH + Duration::from_secs(300),
+            ),
+        ];
+
+        assert_eq!(
+            pick_latest_matching_file(files, "1685731124"),
+            Some(PathBuf::from(r"D:\MCode\Rust\1685731124-200.png"))
+        );
+    }
+
+    #[test]
+    fn no_matching_prefix_returns_none() {
+        let files = vec![(
+            PathBuf::from(r"D:\MCode\Rust\2776250164-300.png"),
+            UNIX_EPOCH + Duration::from_secs(300),
+        )];
+
+        assert_eq!(pick_latest_matching_file(files, "1685731124"), None);
+    }
+
+    #[test]
+    fn detects_failure_keyword_in_ocr_text() {
+        assert!(contains_failure_keyword("版本确认再度,请再试一次"));
+        assert!(!contains_failure_keyword("版本确认成功"));
+    }
+
+    #[test]
+    fn duration_until_next_8am_same_day_when_before_8am() {
+        let now = Local.with_ymd_and_hms(2026, 7, 6, 6, 30, 0).unwrap();
+        let duration = duration_until_next_8am(now);
+        assert_eq!(duration, Duration::from_secs(90 * 60));
+    }
+
+    #[test]
+    fn duration_until_next_8am_rolls_to_next_day_when_after_8am() {
+        let now = Local.with_ymd_and_hms(2026, 7, 6, 9, 0, 0).unwrap();
+        let duration = duration_until_next_8am(now);
+        assert_eq!(duration, Duration::from_secs(23 * 60 * 60));
     }
 }
