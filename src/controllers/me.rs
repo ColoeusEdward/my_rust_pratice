@@ -1,4 +1,5 @@
 // use std::sync::{Arc, Mutex};
+use crate::controllers::abogen_tts::{self, AbogenSpeakOptions};
 use crate::get_pot_player;
 use crate::uitl;
 use chrono::Local;
@@ -306,6 +307,24 @@ pub async fn play_text(dat: PlayTextData) -> Result<String, Rejection> {
         Err(e) => {
             println!("play_text 失败: {}", e);
             return Ok(format!("play_text 失败"));
+        }
+    }
+}
+
+pub async fn play_text_abogen(dat: PlayTextData) -> Result<String, Rejection> {
+    let res = tokio::spawn(async move {
+        abogen_tts::synthesize_and_play(dat.str.as_str(), AbogenSpeakOptions::default()).await
+    });
+
+    match res.await {
+        Ok(Ok(())) => Ok(format!("play_text_abogen 成功")),
+        Ok(Err(e)) => {
+            println!("play_text_abogen 失败: {}", e);
+            Ok(format!("play_text_abogen 失败: {}", e))
+        }
+        Err(e) => {
+            println!("play_text_abogen 失败: {}", e);
+            Ok(format!("play_text_abogen 失败"))
         }
     }
 }

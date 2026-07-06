@@ -21,7 +21,10 @@ pub fn get_router() -> impl warp::Filter<Extract = impl warp::Reply, Error = war
         .and(warp::path!("test").and_then(me::test))
         .or(warp::path!("playText")
             .and(warp::body::json())
-            .and_then(me::play_text));
+            .and_then(me::play_text))
+        .or(warp::path!("playTextAbogen")
+            .and(warp::body::json())
+            .and_then(me::play_text_abogen));
 
     let cors = warp::cors()
         // .allow_origin("https://meamoe.top") // 仅允许特定域名
