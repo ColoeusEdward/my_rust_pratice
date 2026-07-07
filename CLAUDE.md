@@ -21,6 +21,21 @@ The role of this file is to describe common mistakes andconfusion points that ag
 
 `src/ui/bingbongbangbong.MP3` is the alarm sound played at 21:30. It gets copied to the output directory by `build.rs`. The binary finds it at runtime via `std::env::current_exe()` sibling path.
 
+## MCGS IPC Details (`mcgs_control.rs`)
+
+- Finds MCGS「下载配置」dialog (belongs to `McgsSetPro.exe`, a different process from the
+  simulator window `mcgs_app.exe`) by top-level window title match, then finds its
+  「停止运行」/「启动运行」child buttons by title match, and clicks via
+  `SendMessageA(hwnd, BM_CLICK, 0, 0)`.
+- **UIPI gotcha**: `McgsSetPro.exe` normally runs elevated (admin). If `hello_cargo.exe` is
+  running in **debug mode** (non-elevated, per this file's Debug/Release section), `BM_CLICK`
+  is silently swallowed by Windows' User Interface Privilege Isolation — `SendMessageA` returns
+  without error, the program prints "已点击", but the button never actually fires and MCGS's
+  「返回信息」 log shows no new entry. This is NOT a bug in window/button lookup — verify by
+  checking whether the target process can be opened with `OpenProcess(PROCESS_QUERY_INFORMATION)`
+  from a non-elevated process (access denied ⇒ target is elevated ⇒ UIPI blocks the click).
+  Only a **release build** (which auto-elevates via UAC) can actually click MCGS's buttons.
+
 ## PotPlayer IPC Details
 
 - Finds PotPlayer window by class name `PotPlayer64` (via `FindWindowExA`)
