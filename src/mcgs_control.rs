@@ -79,3 +79,49 @@ unsafe fn window_title(hwnd: HWND) -> String {
         .to_string_lossy()
         .to_string()
 }
+
+fn find_child_button(parent: HWND, title_keyword: &str) -> Option<HWND> {
+    let keyword_utf16: Vec<u16> = title_keyword.encode_utf16().collect();
+    let mut ctx = ChildSearchContext {
+        keyword: keyword_utf16,
+        found: null_mut(),
+    };
+
+    unsafe {
+        EnumChildWindows(
+            parent,
+            Some(enum_child_button_callback),
+            &mut ctx as *mut ChildSearchContext as LPARAM,
+        );
+    }
+
+    if ctx.found.is_null() {
+        None
+    } else {
+        Some(ctx.found)
+    }
+}
+
+struct ChildSearchContext {
+    keyword: Vec<u16>,
+    found: HWND,
+}
+
+unsafe extern "system" fn enum_child_button_callback(hwnd: HWND, data: LPARAM) -> BOOL {
+    let ctx = &mut *(data as *mut ChildSearchContext);
+    let title = window_title(hwnd);
+    let keyword = String::from_utf16_lossy(&ctx.keyword);
+
+    if title.contains(&keyword) {
+        ctx.found = hwnd;
+        return 0;
+    }
+
+    1
+}
+
+fn click_button(hwnd: HWND) {
+    unsafe {
+        SendMessageA(hwnd, BM_CLICK, 0, 0);
+    }
+}
