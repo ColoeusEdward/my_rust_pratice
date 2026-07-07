@@ -1,5 +1,6 @@
 use crate::controllers::{self, file};
 use crate::get_pot_player;
+use crate::mcgs_control;
 use std::io;
 use std::io::Write;
 
@@ -13,7 +14,8 @@ pub fn init_menu() -> () {
         println!("5. 下载pot NT");
         println!("6. 下载pot ME");
         println!("7. 开始/停止采集微信聊天");
-        println!("8. 退出");
+        println!("8. 重启MCGS下位机运行(停止+启动)");
+        println!("9. 退出");
 
         print!("请输入您的选择: ");
         io::stdout().flush().unwrap(); // 确保提示信息立即显示
@@ -69,6 +71,11 @@ pub fn init_menu() -> () {
                 controllers::wechat_capture::toggle_wechat_capture();
             }
             "8" => {
+                tokio::spawn(async {
+                    mcgs_control::restart_lower_computer().await;
+                });
+            }
+            "9" => {
                 println!("退出程序。");
                 break; // 退出循环
             }
