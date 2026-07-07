@@ -13,6 +13,7 @@ mod controllers;
 mod enums;
 mod file_monitor;
 mod get_pot_player;
+mod mcgs_control;
 mod menu;
 mod ocr;
 mod router;
