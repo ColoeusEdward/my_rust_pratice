@@ -3,8 +3,31 @@ use crate::get_pot_player;
 use crate::mcgs_control;
 use std::io;
 use std::io::Write;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::thread;
+use std::time::Duration as StdDuration;
+use tokio::time::{sleep, Duration};
+use winapi::um::winuser::{GetAsyncKeyState, VK_MENU};
+
+static MCGS_RESTART_STOP_FLAG: OnceLock<Mutex<Option<Arc<AtomicBool>>>> = OnceLock::new();
+static ALT_Q_LISTENER_STARTED: OnceLock<()> = OnceLock::new();
+static ALT_Q_ACTION_STACK: OnceLock<Mutex<Vec<AltQAction>>> = OnceLock::new();
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum AltQAction {
+    WechatCapture,
+    McgsRestart,
+}
+
+const VK_Q: i32 = 0x51;
+const MCGS_RESTART_INTERVAL_SECS: u64 = 10 * 60;
+const MCGS_STOP_CHECK_INTERVAL_MS: u64 = 200;
+const MCGS_HOTKEY_POLL_INTERVAL_MS: u64 = 50;
 
 pub fn init_menu() -> () {
+    ensure_menu_alt_q_listener();
+
     loop {
         println!("\n请选择一个选项:");
         println!("1. get_play_list");
@@ -71,9 +94,7 @@ pub fn init_menu() -> () {
                 controllers::wechat_capture::toggle_wechat_capture();
             }
             "8" => {
-                tokio::spawn(async {
-                    mcgs_control::restart_lower_computer().await;
-                });
+                start_or_restart_mcgs_restart_loop();
             }
             "9" => {
                 println!("退出程序。");
@@ -83,5 +104,237 @@ pub fn init_menu() -> () {
                 println!("无效的选择，请重新输入。");
             }
         }
+    }
+}
+
+pub(crate) fn register_alt_q_action(action: AltQAction) {
+    let stack = ALT_Q_ACTION_STACK.get_or_init(|| Mutex::new(Vec::new()));
+    let mut guard = stack.lock().unwrap();
+    guard.retain(|registered| *registered != action);
+    guard.push(action);
+}
+
+pub(crate) fn unregister_alt_q_action(action: AltQAction) {
+    let stack = ALT_Q_ACTION_STACK.get_or_init(|| Mutex::new(Vec::new()));
+    let mut guard = stack.lock().unwrap();
+    guard.retain(|registered| *registered != action);
+}
+
+pub(crate) fn ensure_menu_alt_q_listener() {
+    ALT_Q_LISTENER_STARTED.get_or_init(|| {
+        thread::spawn(|| {
+            let mut was_alt_q_down = is_key_down(VK_MENU) && is_key_down(VK_Q);
+
+            loop {
+                if alt_q_pressed_edge(is_key_down(VK_MENU), is_key_down(VK_Q), &mut was_alt_q_down)
+                {
+                    handle_menu_alt_q();
+                }
+
+                thread::sleep(StdDuration::from_millis(MCGS_HOTKEY_POLL_INTERVAL_MS));
+            }
+        });
+    });
+}
+
+fn handle_menu_alt_q() {
+    loop {
+        let action = next_alt_q_action();
+
+        match action {
+            Some(AltQAction::WechatCapture) => {
+                if controllers::wechat_capture::request_stop_wechat_capture() {
+                    println!("Alt+Q pressed: stop wechat OCR capture");
+                    unregister_alt_q_action(AltQAction::WechatCapture);
+                    return;
+                }
+
+                unregister_alt_q_action(AltQAction::WechatCapture);
+            }
+            Some(AltQAction::McgsRestart) => {
+                if request_stop_mcgs_restart_loop() {
+                    println!("Alt+Q pressed: stop MCGS restart loop");
+                    unregister_alt_q_action(AltQAction::McgsRestart);
+                    return;
+                }
+
+                unregister_alt_q_action(AltQAction::McgsRestart);
+            }
+            None => return,
+        }
+    }
+}
+
+fn next_alt_q_action() -> Option<AltQAction> {
+    let stack = ALT_Q_ACTION_STACK.get_or_init(|| Mutex::new(Vec::new()));
+    let guard = stack.lock().unwrap();
+    guard.last().copied()
+}
+
+fn start_or_restart_mcgs_restart_loop() {
+    ensure_menu_alt_q_listener();
+
+    let state = MCGS_RESTART_STOP_FLAG.get_or_init(|| Mutex::new(None));
+    let mut guard = state.lock().unwrap();
+
+    if let Some(existing_stop_flag) = guard.take() {
+        existing_stop_flag.store(true, Ordering::SeqCst);
+        unregister_alt_q_action(AltQAction::McgsRestart);
+        println!("已停止旧的 MCGS 定时重启任务，正在启动新的任务。");
+    }
+
+    let stop_flag = Arc::new(AtomicBool::new(false));
+    *guard = Some(Arc::clone(&stop_flag));
+    register_alt_q_action(AltQAction::McgsRestart);
+    drop(guard);
+
+    println!("已启动 MCGS 下位机定时重启：立即执行一次，之后每 10 分钟执行一次。按 Alt+Q 停止。");
+
+    tokio::spawn(async move {
+        run_mcgs_restart_loop(Arc::clone(&stop_flag)).await;
+        if clear_mcgs_restart_state_if_current(&stop_flag) {
+            unregister_alt_q_action(AltQAction::McgsRestart);
+        }
+    });
+}
+
+async fn run_mcgs_restart_loop(stop_flag: Arc<AtomicBool>) {
+    loop {
+        if stop_flag.load(Ordering::SeqCst) {
+            break;
+        }
+
+        mcgs_control::restart_lower_computer().await;
+
+        if wait_for_mcgs_restart_interval_or_stop(&stop_flag).await {
+            break;
+        }
+    }
+
+    println!("MCGS 下位机定时重启任务已停止。");
+}
+
+async fn wait_for_mcgs_restart_interval_or_stop(stop_flag: &AtomicBool) -> bool {
+    let mut elapsed_ms = 0;
+    let total_ms = MCGS_RESTART_INTERVAL_SECS * 1000;
+
+    while elapsed_ms < total_ms {
+        if stop_flag.load(Ordering::SeqCst) {
+            return true;
+        }
+
+        sleep(Duration::from_millis(MCGS_STOP_CHECK_INTERVAL_MS)).await;
+        elapsed_ms += MCGS_STOP_CHECK_INTERVAL_MS;
+    }
+
+    stop_flag.load(Ordering::SeqCst)
+}
+
+fn request_stop_mcgs_restart_loop() -> bool {
+    let stop_flag = {
+        let state = MCGS_RESTART_STOP_FLAG.get_or_init(|| Mutex::new(None));
+        let guard = state.lock().unwrap();
+        guard.as_ref().cloned()
+    };
+
+    request_stop_flag_once(stop_flag)
+}
+
+fn request_stop_flag_once(stop_flag: Option<Arc<AtomicBool>>) -> bool {
+    match stop_flag {
+        Some(flag) => !flag.swap(true, Ordering::SeqCst),
+        None => false,
+    }
+}
+
+fn clear_mcgs_restart_state_if_current(completed_stop_flag: &Arc<AtomicBool>) -> bool {
+    let state = MCGS_RESTART_STOP_FLAG.get_or_init(|| Mutex::new(None));
+    let mut guard = state.lock().unwrap();
+
+    if is_current_mcgs_restart_flag(guard.as_ref(), completed_stop_flag) {
+        *guard = None;
+        true
+    } else {
+        false
+    }
+}
+
+fn is_current_mcgs_restart_flag(
+    current: Option<&Arc<AtomicBool>>,
+    completed: &Arc<AtomicBool>,
+) -> bool {
+    current
+        .map(|current_stop_flag| Arc::ptr_eq(current_stop_flag, completed))
+        .unwrap_or(false)
+}
+
+fn choose_alt_q_action_for_test(stack: &[AltQAction]) -> Option<AltQAction> {
+    stack.last().copied()
+}
+
+fn alt_q_pressed_edge(alt_down: bool, q_down: bool, was_down: &mut bool) -> bool {
+    let is_down = alt_down && q_down;
+    let pressed = is_down && !*was_down;
+    *was_down = is_down;
+    pressed
+}
+
+fn is_key_down(vkey: i32) -> bool {
+    unsafe { (GetAsyncKeyState(vkey) as u16 & 0x8000) != 0 }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::AtomicBool;
+    use std::sync::Arc;
+
+    #[test]
+    fn alt_q_pressed_edge_only_triggers_on_new_press() {
+        let mut was_down = false;
+
+        assert!(!alt_q_pressed_edge(false, false, &mut was_down));
+        assert!(!alt_q_pressed_edge(true, false, &mut was_down));
+        assert!(!alt_q_pressed_edge(false, true, &mut was_down));
+
+        assert!(alt_q_pressed_edge(true, true, &mut was_down));
+        assert!(!alt_q_pressed_edge(true, true, &mut was_down));
+
+        assert!(!alt_q_pressed_edge(false, false, &mut was_down));
+        assert!(alt_q_pressed_edge(true, true, &mut was_down));
+    }
+
+    #[test]
+    fn alt_q_action_stack_uses_last_started_priority() {
+        let stack = vec![AltQAction::WechatCapture, AltQAction::McgsRestart];
+        assert_eq!(
+            choose_alt_q_action_for_test(&stack),
+            Some(AltQAction::McgsRestart)
+        );
+
+        let stack = vec![AltQAction::McgsRestart, AltQAction::WechatCapture];
+        assert_eq!(
+            choose_alt_q_action_for_test(&stack),
+            Some(AltQAction::WechatCapture)
+        );
+    }
+
+    #[test]
+    fn request_stop_flag_once_only_reports_first_stop() {
+        let flag = Arc::new(AtomicBool::new(false));
+
+        assert!(request_stop_flag_once(Some(Arc::clone(&flag))));
+        assert!(!request_stop_flag_once(Some(Arc::clone(&flag))));
+        assert!(!request_stop_flag_once(None));
+    }
+
+    #[test]
+    fn mcgs_restart_cleanup_only_matches_same_task_flag() {
+        let old_flag = Arc::new(AtomicBool::new(true));
+        let new_flag = Arc::new(AtomicBool::new(false));
+
+        assert!(is_current_mcgs_restart_flag(Some(&old_flag), &old_flag));
+        assert!(!is_current_mcgs_restart_flag(Some(&new_flag), &old_flag));
+        assert!(!is_current_mcgs_restart_flag(None, &old_flag));
     }
 }

@@ -1,3 +1,4 @@
+use crate::menu::start::{register_alt_q_action, unregister_alt_q_action, AltQAction};
 use crate::ocr::run_umi_ocr;
 use screenshots::Screen;
 use std::ffi::OsString;
@@ -8,15 +9,14 @@ use std::path::PathBuf;
 use std::ptr::null_mut;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::thread::{self, JoinHandle};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::{sleep, Duration};
 use winapi::shared::minwindef::{BOOL, LPARAM};
 use winapi::shared::windef::{HWND, RECT};
 use winapi::um::winuser::{
-    EnumWindows, GetAsyncKeyState, GetWindowRect, GetWindowTextW, IsIconic, IsWindowVisible,
-    SetForegroundWindow, SetWindowPos, ShowWindow, HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE,
-    SWP_SHOWWINDOW, SW_MAXIMIZE, SW_RESTORE, VK_MENU,
+    EnumWindows, GetWindowRect, GetWindowTextW, IsIconic, IsWindowVisible, SetForegroundWindow,
+    SetWindowPos, ShowWindow, HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_MAXIMIZE,
+    SW_RESTORE,
 };
 
 static CAPTURE_STOP_FLAG: OnceLock<Mutex<Option<Arc<AtomicBool>>>> = OnceLock::new();
@@ -25,47 +25,68 @@ const OCR_EXCLUDED_BOTTOM_PX: i32 = 172;
 const COMMA_SPLIT_MIN_CJK_CHARS: usize = 12;
 const DUPLICATE_SENTENCE_SIMILARITY: f64 = 0.8;
 const APPROXIMATE_DUPLICATE_MIN_CHARS: usize = 8;
-const VK_Q: i32 = 0x51;
 
 pub fn toggle_wechat_capture() {
     let state = CAPTURE_STOP_FLAG.get_or_init(|| Mutex::new(None));
     let mut guard = state.lock().unwrap();
 
     if let Some(stop_flag) = guard.take() {
-        stop_flag.store(true, Ordering::SeqCst);
-        println!("已停止微信聊天采集。下一轮检测后任务会退出。");
+        if !stop_flag.swap(true, Ordering::SeqCst) {
+            unregister_alt_q_action(AltQAction::WechatCapture);
+            println!("已停止微信聊天采集。下一轮检测后任务会退出。");
+        }
         return;
     }
 
     let stop_flag = Arc::new(AtomicBool::new(false));
     *guard = Some(Arc::clone(&stop_flag));
+    register_alt_q_action(AltQAction::WechatCapture);
     println!("已启动微信聊天采集，每6秒采集一次，再次选择菜单项可停止。");
-
-    let hotkey_listener_stop = Arc::new(AtomicBool::new(false));
-    let hotkey_listener = start_wechat_stop_hotkey_listener(
-        Arc::clone(&stop_flag),
-        Arc::clone(&hotkey_listener_stop),
-    );
 
     tokio::spawn(async move {
         if let Err(e) = clear_markdown_file(markdown_path()) {
             eprintln!("清空微信聊天md失败: {}", e);
         }
 
-        run_capture_loop(stop_flag).await;
-        hotkey_listener_stop.store(true, Ordering::SeqCst);
-        let _ = hotkey_listener.join();
-
-        let state = CAPTURE_STOP_FLAG.get_or_init(|| Mutex::new(None));
-        let mut guard = state.lock().unwrap();
-        if guard
-            .as_ref()
-            .map(|flag| flag.load(Ordering::SeqCst))
-            .unwrap_or(false)
-        {
-            *guard = None;
+        run_capture_loop(Arc::clone(&stop_flag)).await;
+        if clear_wechat_capture_state_if_current(&stop_flag) {
+            unregister_alt_q_action(AltQAction::WechatCapture);
         }
     });
+}
+
+pub fn request_stop_wechat_capture() -> bool {
+    let stop_flag = {
+        let state = CAPTURE_STOP_FLAG.get_or_init(|| Mutex::new(None));
+        let guard = state.lock().unwrap();
+        guard.as_ref().cloned()
+    };
+
+    match stop_flag {
+        Some(flag) => !flag.swap(true, Ordering::SeqCst),
+        None => false,
+    }
+}
+
+fn clear_wechat_capture_state_if_current(completed_stop_flag: &Arc<AtomicBool>) -> bool {
+    let state = CAPTURE_STOP_FLAG.get_or_init(|| Mutex::new(None));
+    let mut guard = state.lock().unwrap();
+
+    if is_current_wechat_capture_flag(guard.as_ref(), completed_stop_flag) {
+        *guard = None;
+        true
+    } else {
+        false
+    }
+}
+
+fn is_current_wechat_capture_flag(
+    current: Option<&Arc<AtomicBool>>,
+    completed: &Arc<AtomicBool>,
+) -> bool {
+    current
+        .map(|current_stop_flag| Arc::ptr_eq(current_stop_flag, completed))
+        .unwrap_or(false)
 }
 
 async fn run_capture_loop(stop_flag: Arc<AtomicBool>) {
@@ -78,36 +99,6 @@ async fn run_capture_loop(stop_flag: Arc<AtomicBool>) {
 
         sleep(Duration::from_secs(6)).await;
     }
-}
-
-fn start_wechat_stop_hotkey_listener(
-    capture_stop: Arc<AtomicBool>,
-    listener_stop: Arc<AtomicBool>,
-) -> JoinHandle<()> {
-    thread::spawn(move || {
-        let mut was_alt_q_down = false;
-
-        while !listener_stop.load(Ordering::SeqCst) && !capture_stop.load(Ordering::SeqCst) {
-            if alt_q_pressed_edge(is_key_down(VK_MENU), is_key_down(VK_Q), &mut was_alt_q_down) {
-                capture_stop.store(true, Ordering::SeqCst);
-                println!("Alt+Q pressed: stop wechat OCR capture");
-                break;
-            }
-
-            thread::sleep(Duration::from_millis(50));
-        }
-    })
-}
-
-fn alt_q_pressed_edge(alt_down: bool, q_down: bool, was_down: &mut bool) -> bool {
-    let is_down = alt_down && q_down;
-    let pressed = is_down && !*was_down;
-    *was_down = is_down;
-    pressed
-}
-
-fn is_key_down(vkey: i32) -> bool {
-    unsafe { (GetAsyncKeyState(vkey) as u16 & 0x8000) != 0 }
 }
 
 fn capture_once(known_segments: &mut Vec<String>) -> Result<(), String> {
@@ -726,21 +717,13 @@ mod tests {
     }
 
     #[test]
-    fn alt_q_edge_triggers_once_while_keys_are_held() {
-        let mut was_down = false;
+    fn wechat_capture_cleanup_only_matches_same_task_flag() {
+        let old_flag = Arc::new(AtomicBool::new(true));
+        let new_flag = Arc::new(AtomicBool::new(false));
 
-        assert!(alt_q_pressed_edge(true, true, &mut was_down));
-        assert!(!alt_q_pressed_edge(true, true, &mut was_down));
-        assert!(!alt_q_pressed_edge(true, true, &mut was_down));
-    }
-
-    #[test]
-    fn alt_q_edge_rearms_after_keys_are_released() {
-        let mut was_down = false;
-
-        assert!(alt_q_pressed_edge(true, true, &mut was_down));
-        assert!(!alt_q_pressed_edge(false, false, &mut was_down));
-        assert!(alt_q_pressed_edge(true, true, &mut was_down));
+        assert!(is_current_wechat_capture_flag(Some(&old_flag), &old_flag));
+        assert!(!is_current_wechat_capture_flag(Some(&new_flag), &old_flag));
+        assert!(!is_current_wechat_capture_flag(None, &old_flag));
     }
 
     #[test]
