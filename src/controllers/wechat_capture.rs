@@ -16,7 +16,7 @@ use winapi::shared::windef::{HWND, RECT};
 use winapi::um::winuser::{
     EnumWindows, GetWindowRect, GetWindowTextW, IsIconic, IsWindowVisible, SetForegroundWindow,
     SetWindowPos, ShowWindow, HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_MAXIMIZE,
-    SW_RESTORE,
+    SW_MINIMIZE, SW_RESTORE,
 };
 
 static CAPTURE_STOP_FLAG: OnceLock<Mutex<Option<Arc<AtomicBool>>>> = OnceLock::new();
@@ -63,8 +63,22 @@ pub fn request_stop_wechat_capture() -> bool {
     };
 
     match stop_flag {
-        Some(flag) => !flag.swap(true, Ordering::SeqCst),
+        Some(flag) => {
+            let did_stop = !flag.swap(true, Ordering::SeqCst);
+            if did_stop {
+                minimize_wechat_window();
+            }
+            did_stop
+        }
         None => false,
+    }
+}
+
+fn minimize_wechat_window() {
+    if let Some(hwnd) = find_wechat_window() {
+        unsafe {
+            ShowWindow(hwnd, SW_MINIMIZE);
+        }
     }
 }
 
