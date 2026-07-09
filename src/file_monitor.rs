@@ -95,6 +95,17 @@ pub async fn start_daily_screenshot_ocr_check() {
     }
 }
 
+/// 每天午夜0点检查微信聊天采集(菜单7)是否仍在运行，若在运行则自动停止
+pub async fn start_midnight_wechat_capture_stop() {
+    loop {
+        sleep(duration_until_next_midnight(Local::now())).await;
+
+        if crate::controllers::wechat_capture::request_stop_wechat_capture() {
+            println!("📄 [file_monitor] 已到午夜0点，自动停止微信聊天采集。");
+        }
+    }
+}
+
 /// 计算距离下一个当天/次日 8:00 的时长
 fn duration_until_next_8am(now: DateTime<Local>) -> Duration {
     let today_8am = now
@@ -110,6 +121,18 @@ fn duration_until_next_8am(now: DateTime<Local>) -> Duration {
     };
 
     (next_8am - now).to_std().unwrap_or(Duration::from_secs(0))
+}
+
+/// 计算距离下一个午夜0点的时长
+fn duration_until_next_midnight(now: DateTime<Local>) -> Duration {
+    let next_midnight = (now.date_naive() + chrono::Duration::days(1))
+        .and_hms_opt(0, 0, 0)
+        .and_then(|naive| Local.from_local_datetime(&naive).single())
+        .unwrap_or(now);
+
+    (next_midnight - now)
+        .to_std()
+        .unwrap_or(Duration::from_secs(0))
 }
 
 fn run_screenshot_ocr_check_once() -> Result<(), String> {
@@ -469,5 +492,19 @@ mod tests {
         let now = Local.with_ymd_and_hms(2026, 7, 6, 9, 0, 0).unwrap();
         let duration = duration_until_next_8am(now);
         assert_eq!(duration, Duration::from_secs(23 * 60 * 60));
+    }
+
+    #[test]
+    fn duration_until_next_midnight_counts_down_through_the_day() {
+        let now = Local.with_ymd_and_hms(2026, 7, 6, 23, 0, 0).unwrap();
+        let duration = duration_until_next_midnight(now);
+        assert_eq!(duration, Duration::from_secs(60 * 60));
+    }
+
+    #[test]
+    fn duration_until_next_midnight_rolls_to_next_day_right_after_midnight() {
+        let now = Local.with_ymd_and_hms(2026, 7, 6, 0, 0, 1).unwrap();
+        let duration = duration_until_next_midnight(now);
+        assert_eq!(duration, Duration::from_secs(24 * 60 * 60 - 1));
     }
 }
