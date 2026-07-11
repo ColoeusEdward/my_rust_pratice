@@ -103,6 +103,11 @@ async fn main() {
         file_monitor::start_midnight_wechat_capture_stop().await;
     });
 
+    // 每天早上8点调用 freemodel_usage.py 获取7天已用额度，记录到日志文件
+    let _handle7 = tokio::spawn(async {
+        file_monitor::start_daily_freemodel_usage_log().await;
+    });
+
     // let path = enums::get_list_local_list();
     // let line_first = uitl::read_lines(path, 0, 37).unwrap();
     // println!("🪵 [main.rs:60]~ token ~ \x1b[0;32mline_first\x1b[0m = {}", line_first);

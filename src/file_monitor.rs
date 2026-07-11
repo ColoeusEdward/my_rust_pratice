@@ -1,5 +1,6 @@
 use chrono::{DateTime, Local, TimeZone};
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::SystemTime;
@@ -16,6 +17,8 @@ const IMAGE_KEEP_COUNT: usize = 10;
 const IMAGE_CLEANUP_INTERVAL: u64 = 24 * 60 * 60;
 const SCREENSHOT_PREFIX: &str = "1685731124";
 const OCR_FAILURE_KEYWORD: &str = "再度";
+const FREEMODEL_USAGE_SCRIPT: &str = r"D:\NTCode\electron\chat\freemodel_usage.py";
+const FREEMODEL_USAGE_LOG: &str = r"D:\NTCode\electron\chat\freemodel_usage_log.jsonl";
 
 /// 监控文件是否被修改，一旦变化就备份
 pub async fn start_monitoring() {
@@ -104,6 +107,59 @@ pub async fn start_midnight_wechat_capture_stop() {
             println!("📄 [file_monitor] 已到午夜0点，自动停止微信聊天采集。");
         }
     }
+}
+
+/// 每天早上8点调用 freemodel_usage.py 获取7天已用/总额度，追加记录到 jsonl 日志文件
+pub async fn start_daily_freemodel_usage_log() {
+    loop {
+        sleep(duration_until_next_8am(Local::now())).await;
+
+        if let Err(e) = run_freemodel_usage_log_once() {
+            eprintln!("❌ [file_monitor] freemodel 额度记录失败: {}", e);
+        }
+    }
+}
+
+fn run_freemodel_usage_log_once() -> Result<(), String> {
+    let output = Command::new("py")
+        .args([FREEMODEL_USAGE_SCRIPT, "--json"])
+        .output()
+        .map_err(|e| format!("调用 freemodel_usage.py 失败: {}", e))?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "freemodel_usage.py 退出码非0: {:?}, stderr: {}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let data: serde_json::Value = serde_json::from_str(stdout.trim())
+        .map_err(|e| format!("解析 freemodel_usage.py 输出失败: {}, 原始输出: {}", e, stdout))?;
+
+    let mut record = serde_json::json!({
+        "recordedAt": Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+    });
+    if let serde_json::Value::Object(ref mut map) = record {
+        if let serde_json::Value::Object(data_map) = data {
+            map.extend(data_map);
+        }
+    }
+
+    append_jsonl_line(FREEMODEL_USAGE_LOG, &record.to_string())
+        .map_err(|e| format!("写入额度记录文件失败: {}", e))?;
+
+    println!("📄 [file_monitor] 已记录 freemodel 7天额度到: {}", FREEMODEL_USAGE_LOG);
+    Ok(())
+}
+
+fn append_jsonl_line(path: &str, line: &str) -> std::io::Result<()> {
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
+    writeln!(file, "{}", line)
 }
 
 /// 计算距离下一个当天/次日 8:00 的时长
@@ -358,6 +414,12 @@ mod tests {
     #[ignore]
     fn manual_verify_screenshot_ocr_check_against_fail_test_image() {
         run_screenshot_ocr_check_once().unwrap();
+    }
+
+    #[test]
+    #[ignore]
+    fn manual_verify_freemodel_usage_log_against_live_api() {
+        run_freemodel_usage_log_once().unwrap();
     }
 
     #[test]
