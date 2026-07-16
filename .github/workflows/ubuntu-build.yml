@@ -17,16 +17,39 @@ on:
 
 jobs:
   build:
+    # 在 ubuntu-latest 托管 runner 上,用 debian:buster 容器编译。
+    # buster 的 glibc 为 2.28、OpenSSL 为 1.1.1,与目标部署系统
+    # (Ubuntu 18.10, glibc 2.28 / OpenSSL 1.1.1)一致 —— glibc/OpenSSL
+    # 均不向前兼容,故必须用不高于目标机的版本编译。
     runs-on: ubuntu-latest
+    container:
+      image: debian:buster
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      # rodio 需要 ALSA(libasound2-dev)，reqwest(默认 native-tls) 需要 OpenSSL。
-      - name: Install system deps (ALSA + OpenSSL)
+      # buster 已 EOL(2024 年停止支持),官方源 deb.debian.org 已下线,
+      # 需切到 archive.debian.org,并关闭 Valid-Until 过期检查。
+      - name: Fix apt sources (buster is EOL)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libasound2-dev pkg-config libssl-dev
+          rm -f /etc/apt/sources.list.d/*.list
+          printf '%s\n' \
+            'deb http://archive.debian.org/debian buster main' \
+            'deb http://archive.debian.org/debian-security buster/updates main' \
+            > /etc/apt/sources.list
+
+      # 裸 debian 容器以 root 运行且无 sudo,先装齐基础工具:
+      #   git/ca-certificates/curl -> checkout 与 rustup 安装所需
+      #   gcc/pkg-config           -> Rust 链接与 pkg-config 探测
+      #   libasound2-dev(ALSA)     -> rodio;  libssl-dev(OpenSSL) -> reqwest native-tls
+      - name: Install system deps
+        run: |
+          apt-get -o Acquire::Check-Valid-Until=false update
+          apt-get install -y --no-install-recommends \
+            git ca-certificates curl gcc pkg-config \
+            libasound2-dev libssl-dev
+
+      # buster 的 glibc 为 2.28,checkout@v4(Node20)在此常因 GLIBC 版本报错,
+      # 改用 checkout@v3(Node16)以保证在旧容器内可运行。
+      - name: Checkout code
+        uses: actions/checkout@v3
 
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1

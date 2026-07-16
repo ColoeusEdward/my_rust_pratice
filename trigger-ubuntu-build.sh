@@ -56,8 +56,33 @@ before_id="$(retry 5 3 gh run list --workflow="$WORKFLOW" -L 1 --json databaseId
 echo "==> 触发前最新 run ID: $before_id"
 
 # 2) 触发工作流
+#   瞬时网络错误(如 GraphQL EOF)会重试；但由于触发请求可能"服务端已成功、
+#   响应途中断开"，每次失败后先查一次是否已出现比 before_id 更新的 run，
+#   有则视为触发成功、不再重试，避免重复触发产生多个 run。
 echo "==> 正在触发..."
-gh workflow run "$WORKFLOW" --ref "$REF" -f profile="$PROFILE"
+triggered=0
+for i in 1 2 3 4 5; do
+  if gh workflow run "$WORKFLOW" --ref "$REF" -f profile="$PROFILE" >/dev/null 2>&1; then
+    triggered=1
+    break
+  fi
+  # 触发命令返回失败：确认是否其实已经产生了新 run
+  check_id="$(retry 3 3 gh run list --workflow="$WORKFLOW" -L 1 --json databaseId \
+                --jq '.[0].databaseId // 0' || echo 0)"
+  if [ "$check_id" != "0" ] && [ "$check_id" != "$before_id" ]; then
+    echo "    (触发命令报错，但已检测到新 run $check_id，视为触发成功)"
+    triggered=1
+    break
+  fi
+  if [ "$i" -lt 5 ]; then
+    echo "    (第 $i/5 次触发失败且未产生新 run，3s 后重试)" >&2
+    sleep 3
+  fi
+done
+if [ "$triggered" -ne 1 ]; then
+  echo "错误: 触发工作流失败(多次重试后仍失败)。请检查网络或 gh 登录状态。"
+  exit 1
+fi
 
 # 3) 轮询直到出现比 before_id 更新的 run ID(即本次触发产生的 run)
 echo "==> 等待新的运行出现..."
