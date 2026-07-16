@@ -12,14 +12,15 @@ tokio = { version = "1.43.0", features = ["macros",  "io-util","rt","time", "rt-
 tokio-macros = "2.5.0"
 utf8_slice = "1.0.0"
 warp = { version = "0.3.7", features = ["default"] }
-winapi = { version = "0.3.9", features = ["winuser", "windef", "ntdef","winbase", "minwindef"] }
+# x86_ubuntu 分支：以下为 Windows/桌面专有依赖，当前分支未使用，注释以便在 Linux 上编译。
+# winapi = { version = "0.3.9", features = ["winuser", "windef", "ntdef","winbase", "minwindef"] }
 reqwest = { version = "0.12.12", features = ["json","multipart","stream"] }
 serde_json = { version = "1.0.139", features = ["default"] }
 serde = { version = "1.0.218", features = ["derive"] }
 futures = "0.3.31"
-user32-sys = "0.2.0"
-rsautogui = "0.2.2"
-screenshots = "0.8.10"
+# user32-sys = "0.2.0"   # Windows-only
+# rsautogui = "0.2.2"    # 鼠标模拟（Windows）
+# screenshots = "0.8.10" # 截图（Linux 需 X11 系统库）
 hyper = { version = "1.6.0", features = ["full"] }
 mime_guess = "2.0.5"
 percent-encoding = "2.3.1"
@@ -27,9 +28,9 @@ axum = "0.8.3"
 tower-http = { version =  "0.6.2",   features = ["fs"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
-enigo = "0.3.0"
-runas = "1.2.0"
-is_elevated = "0.1.2"
-rodio = "0.21.1"
+# enigo = "0.3.0"        # 键鼠模拟（Linux 需 libxdo）
+# runas = "1.2.0"        # UAC 提权（Windows）
+# is_elevated = "0.1.2"  # 管理员检测（Windows）
+rodio = "0.21.1"          # 音频播放（Linux 需 libasound2-dev / ALSA）
 edge-tts-rust = "0.1.3"
-arboard = "3.5.0"
+# arboard = "3.5.0"      # 剪贴板（Linux 需 X11）
