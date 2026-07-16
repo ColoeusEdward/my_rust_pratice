@@ -1,0 +1,54 @@
+name: Ubuntu Build
+
+# 手动触发（可被本机 `gh workflow run` 触发）。
+# 注意：workflow_dispatch 仅在“默认分支(main)”上存在此文件时才可被 gh/API 触发；
+#       而实际编译哪个分支的代码，取决于触发时 `--ref` 指定的分支（需该分支也含此文件）。
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: '构建类型 (release / debug)'
+        required: false
+        default: 'release'
+        type: choice
+        options:
+          - release
+          - debug
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # rodio 需要 ALSA(libasound2-dev)，reqwest(默认 native-tls) 需要 OpenSSL。
+      - name: Install system deps (ALSA + OpenSSL)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev pkg-config libssl-dev
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: x86_64-unknown-linux-gnu
+          profile: minimal
+          toolchain: stable
+
+      - name: Build
+        id: build
+        run: |
+          if [ "${{ inputs.profile }}" = "debug" ]; then
+            cargo build
+            echo "dir=debug" >> "$GITHUB_OUTPUT"
+          else
+            cargo build --release
+            echo "dir=release" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hello_cargo-ubuntu-${{ inputs.profile }}
+          path: target/${{ steps.build.outputs.dir }}/hello_cargo
+          if-no-files-found: error
