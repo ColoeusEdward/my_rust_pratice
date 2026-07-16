@@ -28,9 +28,9 @@ mod router;
 #[tokio::main]
 async fn main() {
     // 仅启动 Web 服务：/playText 合成并本机播放，/getTextAudio 合成后返回音频字节。
-    // 端口沿用原逻辑：debug=7655，release=7654。
+    // 本分支运行端口固定为 7665。
     let handle = tokio::spawn(async {
-        let port: u16 = if cfg!(debug_assertions) { 7655 } else { 7654 };
+        let port: u16 = 7665;
         let route = router::get_router();
         warp::serve(route).run(([0, 0, 0, 0], port)).await;
     });

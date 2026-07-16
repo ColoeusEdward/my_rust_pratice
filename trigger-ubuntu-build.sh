@@ -28,9 +28,31 @@ echo "==> 构建类型: $PROFILE"
 command -v gh >/dev/null 2>&1 || { echo "错误: 未找到 gh 命令"; exit 1; }
 gh auth status >/dev/null 2>&1 || { echo "错误: gh 未登录"; exit 1; }
 
+# 通用重试：重试执行命令并捕获其 stdout。
+# 用法: out="$(retry <最大次数> <间隔秒> <命令...>)"
+# 命令 exit 0 视为成功(即使输出为空)，打印 stdout 并返回 0；
+# 全部重试失败则返回最后一次的退出码。进度提示走 stderr，不污染捕获的 stdout。
+retry() {
+  local tries="$1" delay="$2"; shift 2
+  local n=0 out rc
+  while :; do
+    n=$((n + 1))
+    if out="$("$@" 2>/dev/null)"; then
+      printf '%s' "$out"
+      return 0
+    fi
+    rc=$?
+    if [ "$n" -ge "$tries" ]; then
+      return "$rc"
+    fi
+    echo "    (第 $n/$tries 次获取失败，${delay}s 后重试: $*)" >&2
+    sleep "$delay"
+  done
+}
+
 # 1) 记录触发前该工作流的最新 run ID，用于识别本次新产生的 run
-before_id="$(gh run list --workflow="$WORKFLOW" -L 1 --json databaseId \
-              --jq '.[0].databaseId // 0' 2>/dev/null || echo 0)"
+before_id="$(retry 5 3 gh run list --workflow="$WORKFLOW" -L 1 --json databaseId \
+              --jq '.[0].databaseId // 0' || echo 0)"
 echo "==> 触发前最新 run ID: $before_id"
 
 # 2) 触发工作流
@@ -41,8 +63,8 @@ gh workflow run "$WORKFLOW" --ref "$REF" -f profile="$PROFILE"
 echo "==> 等待新的运行出现..."
 run_id=""
 for _ in $(seq 1 30); do   # 最多等 ~30*3=90s
-  candidate="$(gh run list --workflow="$WORKFLOW" -L 1 --json databaseId \
-                --jq '.[0].databaseId // 0' 2>/dev/null || echo 0)"
+  candidate="$(retry 3 3 gh run list --workflow="$WORKFLOW" -L 1 --json databaseId \
+                --jq '.[0].databaseId // 0' || echo 0)"
   if [ "$candidate" != "0" ] && [ "$candidate" != "$before_id" ]; then
     run_id="$candidate"
     break
@@ -55,13 +77,20 @@ if [ -z "$run_id" ]; then
   exit 1
 fi
 echo "==> 本次运行 ID: $run_id"
-echo "==> 链接: $(gh run view "$run_id" --json url --jq .url)"
+echo "==> 链接: $(retry 5 3 gh run view "$run_id" --json url --jq .url || echo '(获取链接失败)')"
 
 # 4) 轮询运行状态直到完成
 echo "==> 轮询状态(每 ${POLL_INTERVAL}s)..."
 while true; do
-  read -r status conclusion < <(gh run view "$run_id" \
-        --json status,conclusion --jq '"\(.status) \(.conclusion // "")"')
+  # 单次状态查询失败会自动重试；仍失败则本轮跳过，下个周期再试，不中断整个轮询
+  line="$(retry 5 3 gh run view "$run_id" \
+        --json status,conclusion --jq '"\(.status) \(.conclusion // "")"' || echo '')"
+  if [ -z "$line" ]; then
+    echo "    (状态查询暂时失败，${POLL_INTERVAL}s 后重试)"
+    sleep "$POLL_INTERVAL"
+    continue
+  fi
+  read -r status conclusion <<< "$line"
   echo "    status=$status conclusion=$conclusion"
   if [ "$status" = "completed" ]; then
     break
@@ -79,7 +108,36 @@ notify() {  # $1=标题 $2=正文 $3=图标码(64=信息,16=错误)
 
 if [ "$conclusion" = "success" ]; then
   echo "==> ✅ 打包成功"
-  notify "Ubuntu 打包成功" "分支 $REF ($PROFILE) 打包成功! run #$run_id" 64
+
+  # 6) 查询本次 run 产生的 artifact，输出可在浏览器打开的下载链接
+  run_url="$(retry 5 3 gh run view "$run_id" --json url --jq .url || echo '')"
+  repo="$(retry 5 3 gh repo view --json nameWithOwner --jq .nameWithOwner || echo '')"
+
+  echo "==> Artifact 列表:"
+  # artifacts API 返回 id/name/size；浏览器下载链接需自行拼接为
+  # https://github.com/<repo>/actions/runs/<run_id>/artifacts/<artifact_id>
+  artifact_lines="$(retry 5 3 gh api "repos/$repo/actions/runs/$run_id/artifacts" \
+      --jq '.artifacts[] | "\(.id)\t\(.name)\t\(.size_in_bytes)"' || echo '')"
+
+  first_artifact_url=""
+  if [ -n "$artifact_lines" ]; then
+    while IFS=$'\t' read -r aid aname asize; do
+      [ -z "$aid" ] && continue
+      aurl="https://github.com/$repo/actions/runs/$run_id/artifacts/$aid"
+      printf '    - %s (%s bytes)\n      %s\n' "$aname" "$asize" "$aurl"
+      [ -z "$first_artifact_url" ] && first_artifact_url="$aurl"
+    done <<< "$artifact_lines"
+    echo "==> 亦可用命令下载: gh run download $run_id"
+  else
+    echo "    (未查询到 artifact，可能工作流未上传或权限不足)"
+  fi
+
+  # 弹窗：优先展示 artifact 链接，无则退回 run 链接
+  if [ -n "$first_artifact_url" ]; then
+    notify "Ubuntu 打包成功" "分支 $REF ($PROFILE) 打包成功! Artifact: $first_artifact_url" 64
+  else
+    notify "Ubuntu 打包成功" "分支 $REF ($PROFILE) 打包成功! run #$run_id: $run_url" 64
+  fi
   exit 0
 else
   echo "==> ❌ 打包未成功: $conclusion"
