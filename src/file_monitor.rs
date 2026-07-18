@@ -120,7 +120,7 @@ pub async fn start_daily_freemodel_usage_log() {
     }
 }
 
-fn run_freemodel_usage_log_once() -> Result<(), String> {
+pub fn run_freemodel_usage_log_once() -> Result<(), String> {
     let output = Command::new("py")
         .args([FREEMODEL_USAGE_SCRIPT, "--json"])
         .output()

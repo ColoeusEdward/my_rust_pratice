@@ -38,7 +38,8 @@ pub fn init_menu() -> () {
         println!("6. 下载pot ME");
         println!("7. 开始/停止采集微信聊天");
         println!("8. 重启MCGS下位机运行(停止+启动)");
-        println!("9. 退出");
+        println!("9. 手动记录freemodel额度");
+        println!("10. 退出");
 
         print!("请输入您的选择: ");
         io::stdout().flush().unwrap(); // 确保提示信息立即显示
@@ -97,6 +98,15 @@ pub fn init_menu() -> () {
                 start_or_restart_mcgs_restart_loop();
             }
             "9" => {
+                println!("正在调用 freemodel_usage.py 记录额度，请稍候……");
+                tokio::task::spawn_blocking(|| {
+                    match crate::file_monitor::run_freemodel_usage_log_once() {
+                        Ok(()) => println!("✅ freemodel 额度已手动记录。"),
+                        Err(e) => eprintln!("❌ freemodel 额度记录失败: {}", e),
+                    }
+                });
+            }
+            "10" => {
                 println!("退出程序。");
                 break; // 退出循环
             }
