@@ -10,6 +10,7 @@ use edge_tts_rust::SpeakOptions;
 use enigo::*;
 use rsautogui::mouse;
 use serde::Deserialize;
+use std::collections::HashSet;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -17,6 +18,12 @@ use std::thread::{self, JoinHandle};
 use tokio::task;
 use tokio::time::{sleep, Duration};
 use warp::Rejection;
+use winapi::shared::minwindef::{BOOL, LPARAM};
+use winapi::shared::windef::{HWND, RECT};
+use winapi::um::winuser::{
+    EnumWindows, GetClassNameW, GetWindowRect, IsWindow, IsWindowVisible, PostMessageW,
+    SetForegroundWindow, WM_CLOSE,
+};
 
 use rodio::Decoder;
 use std::fs::File;
@@ -24,6 +31,16 @@ use std::io::Cursor;
 use winapi::um::winuser::{GetAsyncKeyState, VK_MENU};
 
 const VK_B: i32 = 0x42;
+const MAHJONG_SOUL_URL: &str = "https://game.mahjongsoul.com";
+const BRAVE_LOAD_DELAY: Duration = Duration::from_secs(270);
+const WINDOW_DISCOVERY_ATTEMPTS: usize = 20;
+const WINDOW_DISCOVERY_INTERVAL: Duration = Duration::from_millis(500);
+const CLICK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
+const REPEATED_CLICK_COUNT: usize = 10;
+const FIRST_CLICK_OFFSET: (i32, i32) = (200, 550);
+const CHROMIUM_WINDOW_CLASS: &str = "Chrome_WidgetWin_1";
+
+static BRAVE_AUTOMATION_RUNNING: AtomicBool = AtomicBool::new(false);
 
 pub async fn charge() -> Result<String, Rejection> {
     let now = Local::now();
@@ -40,56 +57,209 @@ pub async fn charge() -> Result<String, Rejection> {
     Ok(format!("charge up"))
 }
 
-pub async fn start_barve() -> Result<String, Rejection> {
+pub async fn start_brave() -> Result<String, Rejection> {
     let now = Local::now();
     println!("当前系统时间: {:?}", now);
+
+    if BRAVE_AUTOMATION_RUNNING
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        return Ok("Brave 自动化任务已在运行".to_string());
+    }
+
     tokio::spawn(async {
-        let script = r#"start brave  https://game.mahjongsoul.com"#;
-        let output = Command::new("powershell.exe")
-            .args(&["-Command", &script])
-            .output()
-            .expect("执行失败");
-
-        mouse::move_to(200, 550);
-
-        sleep(Duration::from_secs(270)).await;
-        sleep(Duration::from_secs(1)).await;
-        // Perform a left-click
-        mouse::click(mouse::Button::Left);
-        sleep(Duration::from_secs(1)).await;
-        mouse::click(mouse::Button::Left);
-        sleep(Duration::from_secs(1)).await;
-        mouse::click(mouse::Button::Left);
-        sleep(Duration::from_secs(1)).await;
-        mouse::click(mouse::Button::Left);
-        sleep(Duration::from_secs(1)).await;
-        mouse::click(mouse::Button::Left);
-        sleep(Duration::from_secs(1)).await;
-        mouse::click(mouse::Button::Left);
-        sleep(Duration::from_secs(1)).await;
-        mouse::click(mouse::Button::Left);
-        sleep(Duration::from_secs(1)).await;
-        mouse::click(mouse::Button::Left);
-        sleep(Duration::from_secs(1)).await;
-        mouse::click(mouse::Button::Left);
-        sleep(Duration::from_secs(1)).await;
-        mouse::click(mouse::Button::Left);
-
-        mouse::move_to(300, 550);
-        sleep(Duration::from_secs(1)).await;
-        // Perform a left-click
-        mouse::click(mouse::Button::Left);
-
-        uitl::screen_shot();
-        sleep(Duration::from_secs(5)).await;
-        let script = r#"Stop-Process -Name "Brave""#;
-        let output = Command::new("powershell.exe")
-            .args(&["-Command", &script])
-            .output()
-            .expect("执行失败");
+        let _running_guard = BraveAutomationRunningGuard;
+        if let Err(error) = run_brave_automation().await {
+            eprintln!("Brave 自动化失败: {error}");
+        }
     });
 
-    Ok(format!("brave up"))
+    Ok("Brave 自动化任务已启动".to_string())
+}
+
+struct BraveAutomationRunningGuard;
+
+impl Drop for BraveAutomationRunningGuard {
+    fn drop(&mut self) {
+        BRAVE_AUTOMATION_RUNNING.store(false, Ordering::Release);
+    }
+}
+
+async fn run_brave_automation() -> Result<(), String> {
+    let existing_windows = chromium_windows()?;
+
+    task::spawn_blocking(open_brave_window)
+        .await
+        .map_err(|error| format!("启动 Brave 的任务异常: {error}"))??;
+
+    let brave_window = wait_for_new_chromium_window(&existing_windows).await?;
+    sleep(BRAVE_LOAD_DELAY).await;
+
+    let interaction_result = task::spawn_blocking(move || interact_with_brave(brave_window))
+        .await
+        .map_err(|error| format!("鼠标与截图任务异常: {error}"))
+        .and_then(|result| result);
+
+    sleep(Duration::from_secs(5)).await;
+
+    let close_result = task::spawn_blocking(move || close_window(brave_window))
+        .await
+        .map_err(|error| format!("关闭 Brave 窗口的任务异常: {error}"))
+        .and_then(|result| result);
+
+    interaction_result?;
+    close_result
+}
+
+fn open_brave_window() -> Result<(), String> {
+    let script = format!(
+        "$ErrorActionPreference = 'Stop'; \
+         Start-Process -FilePath 'brave.exe' \
+         -ArgumentList @('--new-window', '{MAHJONG_SOUL_URL}')"
+    );
+    let output = Command::new("powershell.exe")
+        .args(["-Command", &script])
+        .output()
+        .map_err(|error| format!("无法启动 PowerShell: {error}"))?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        Err(if stderr.is_empty() {
+            format!("PowerShell 退出状态: {}", output.status)
+        } else {
+            stderr
+        })
+    }
+}
+
+async fn wait_for_new_chromium_window(existing: &HashSet<usize>) -> Result<usize, String> {
+    for _ in 0..WINDOW_DISCOVERY_ATTEMPTS {
+        let current = chromium_windows()?;
+        if let Some(window) = select_new_window(existing, &current) {
+            return Ok(window);
+        }
+        sleep(WINDOW_DISCOVERY_INTERVAL).await;
+    }
+
+    Err("未找到新创建的 Brave 窗口".to_string())
+}
+
+fn select_new_window(existing: &HashSet<usize>, current: &HashSet<usize>) -> Option<usize> {
+    current.difference(existing).copied().next()
+}
+
+fn chromium_windows() -> Result<HashSet<usize>, String> {
+    unsafe extern "system" fn collect_window(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        if IsWindowVisible(hwnd) == 0 {
+            return 1;
+        }
+
+        let mut class_name = [0_u16; 64];
+        let length = GetClassNameW(
+            hwnd,
+            class_name.as_mut_ptr(),
+            class_name.len().try_into().unwrap_or(i32::MAX),
+        );
+        if length > 0
+            && String::from_utf16_lossy(&class_name[..length as usize]) == CHROMIUM_WINDOW_CLASS
+        {
+            let windows = &mut *(lparam as *mut HashSet<usize>);
+            windows.insert(hwnd as usize);
+        }
+
+        1
+    }
+
+    let mut windows = HashSet::new();
+    let succeeded = unsafe {
+        EnumWindows(
+            Some(collect_window),
+            &mut windows as *mut HashSet<usize> as LPARAM,
+        )
+    };
+
+    if succeeded == 0 {
+        Err(format!(
+            "枚举浏览器窗口失败: {}",
+            std::io::Error::last_os_error()
+        ))
+    } else {
+        Ok(windows)
+    }
+}
+
+fn interact_with_brave(window: usize) -> Result<(), String> {
+    let hwnd = window as HWND;
+    let mut rect = RECT {
+        left: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+    };
+
+    unsafe {
+        if IsWindow(hwnd) == 0 {
+            return Err("Brave 窗口已经不存在".to_string());
+        }
+        if SetForegroundWindow(hwnd) == 0 {
+            return Err("无法激活 Brave 窗口，为避免误点击已终止任务".to_string());
+        }
+        if GetWindowRect(hwnd, &mut rect) == 0 {
+            return Err(format!(
+                "读取 Brave 窗口位置失败: {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+    }
+
+    thread::sleep(CLICK_INTERVAL);
+    click_repeatedly(
+        mouse_coordinates(window_point(&rect, FIRST_CLICK_OFFSET))?,
+        REPEATED_CLICK_COUNT,
+    );
+    uitl::screen_shot();
+
+    Ok(())
+}
+
+fn window_point(rect: &RECT, offset: (i32, i32)) -> (i32, i32) {
+    (rect.left + offset.0, rect.top + offset.1)
+}
+
+fn mouse_coordinates(point: (i32, i32)) -> Result<(u16, u16), String> {
+    let x = u16::try_from(point.0).map_err(|_| format!("鼠标横坐标超出支持范围: {}", point.0))?;
+    let y = u16::try_from(point.1).map_err(|_| format!("鼠标纵坐标超出支持范围: {}", point.1))?;
+    Ok((x, y))
+}
+
+fn click_repeatedly(point: (u16, u16), count: usize) {
+    mouse::move_to(point.0, point.1);
+    for click_index in 0..count {
+        mouse::click(mouse::Button::Left);
+        if click_index + 1 < count {
+            thread::sleep(CLICK_INTERVAL);
+        }
+    }
+}
+
+fn close_window(window: usize) -> Result<(), String> {
+    let hwnd = window as HWND;
+    unsafe {
+        if IsWindow(hwnd) == 0 {
+            return Ok(());
+        }
+        if PostMessageW(hwnd, WM_CLOSE, 0, 0) == 0 {
+            return Err(format!(
+                "关闭 Brave 窗口失败: {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 pub async fn play_list() -> Result<String, Rejection> {
@@ -498,6 +668,38 @@ mod tests {
         assert!(alt_b_pressed_edge(true, true, &mut was_down));
         assert!(!alt_b_pressed_edge(false, false, &mut was_down));
         assert!(alt_b_pressed_edge(true, true, &mut was_down));
+    }
+
+    #[test]
+    fn new_browser_window_is_selected_from_snapshot_difference() {
+        let existing = HashSet::from([10, 20]);
+        let current = HashSet::from([10, 20, 30]);
+
+        assert_eq!(select_new_window(&existing, &current), Some(30));
+    }
+
+    #[test]
+    fn no_browser_window_is_selected_when_snapshot_is_unchanged() {
+        let existing = HashSet::from([10, 20]);
+
+        assert_eq!(select_new_window(&existing, &existing), None);
+    }
+
+    #[test]
+    fn click_offset_is_relative_to_browser_window() {
+        let rect = RECT {
+            left: 50,
+            top: 100,
+            right: 1050,
+            bottom: 800,
+        };
+
+        assert_eq!(window_point(&rect, (200, 550)), (250, 650));
+    }
+
+    #[test]
+    fn negative_mouse_coordinates_are_rejected() {
+        assert!(mouse_coordinates((-1, 550)).is_err());
     }
 
     #[test]
