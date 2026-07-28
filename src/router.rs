@@ -22,6 +22,9 @@ pub fn get_router() -> impl warp::Filter<Extract = impl warp::Reply, Error = war
         .or(warp::path!("playText")
             .and(warp::body::json())
             .and_then(me::play_text))
+        .or(warp::path!("getTextAudio")
+            .and(warp::body::json())
+            .and_then(me::get_text_audio))
         .or(warp::path!("playTextAbogen")
             .and(warp::body::json())
             .and_then(me::play_text_abogen));

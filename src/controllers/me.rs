@@ -481,6 +481,61 @@ pub async fn play_text(dat: PlayTextData) -> Result<String, Rejection> {
     }
 }
 
+// 合成语音后不在服务端播放，直接把音频字节返回给请求方。
+pub async fn get_text_audio(dat: PlayTextData) -> Result<impl warp::Reply, Rejection> {
+    println!(
+        "get_text_audio 收到请求: 字符数={}, 内容={:?}",
+        dat.str.chars().count(),
+        dat.str
+    );
+
+    // 空文本/纯空白会让 Edge TTS 返回 NoAudioReceived，提前返回明确的客户端错误。
+    if dat.str.trim().is_empty() {
+        let reply = warp::http::Response::builder()
+            .status(warp::http::StatusCode::BAD_REQUEST)
+            .header("content-type", "text/plain; charset=utf-8")
+            .body("get_text_audio 失败: str 为空".to_string().into_bytes())
+            .unwrap();
+        return Ok(reply);
+    }
+
+    let client = EdgeTtsClient::new().unwrap();
+    let result = client
+        .synthesize(
+            dat.str.as_str(),
+            SpeakOptions {
+                voice: "zh-CN-XiaoxiaoNeural".into(),
+                boundary: Boundary::Sentence,
+                rate: "+20%".into(),
+                volume: "-10%".into(),
+                ..SpeakOptions::default()
+            },
+        )
+        .await;
+
+    match result {
+        Ok(res) => {
+            println!("get_text_audio 音频字节: {}", res.audio.len());
+            let reply = warp::http::Response::builder()
+                .header("content-type", "audio/mpeg")
+                .header("content-length", res.audio.len())
+                .body(res.audio)
+                .unwrap();
+            Ok(reply)
+        }
+        Err(e) => {
+            println!("get_text_audio 失败: {:?}", e);
+            let body = format!("get_text_audio 失败: {:?}", e).into_bytes();
+            let reply = warp::http::Response::builder()
+                .status(warp::http::StatusCode::INTERNAL_SERVER_ERROR)
+                .header("content-type", "text/plain; charset=utf-8")
+                .body(body)
+                .unwrap();
+            Ok(reply)
+        }
+    }
+}
+
 pub async fn play_text_abogen(dat: PlayTextData) -> Result<String, Rejection> {
     let res = tokio::spawn(async move {
         abogen_tts::synthesize_and_play(dat.str.as_str(), AbogenSpeakOptions::default()).await
