@@ -42,6 +42,28 @@ const CHROMIUM_WINDOW_CLASS: &str = "Chrome_WidgetWin_1";
 
 static BRAVE_AUTOMATION_RUNNING: AtomicBool = AtomicBool::new(false);
 
+fn brave_log(message: impl AsRef<str>) {
+    println!(
+        "[{}] [start_brave] {}",
+        Local::now().format("%Y-%m-%d %H:%M:%S%.3f"),
+        message.as_ref()
+    );
+}
+
+fn brave_error(message: impl AsRef<str>) {
+    eprintln!(
+        "[{}] [start_brave] ERROR: {}",
+        Local::now().format("%Y-%m-%d %H:%M:%S%.3f"),
+        message.as_ref()
+    );
+}
+
+fn format_window_handles(windows: &HashSet<usize>) -> String {
+    let mut handles: Vec<_> = windows.iter().copied().collect();
+    handles.sort_unstable();
+    format!("{:X?}", handles)
+}
+
 pub async fn charge() -> Result<String, Rejection> {
     let now = Local::now();
     println!("当前系统时间: {:?}", now);
@@ -58,22 +80,26 @@ pub async fn charge() -> Result<String, Rejection> {
 }
 
 pub async fn start_brave() -> Result<String, Rejection> {
-    let now = Local::now();
-    println!("当前系统时间: {:?}", now);
+    brave_log(format!("收到启动请求，目标地址: {MAHJONG_SOUL_URL}"));
 
     if BRAVE_AUTOMATION_RUNNING
         .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
         .is_err()
     {
+        brave_log("拒绝重复启动：自动化任务当前正在运行");
         return Ok("Brave 自动化任务已在运行".to_string());
     }
 
+    brave_log("已取得任务运行锁，准备创建后台任务");
     tokio::spawn(async {
         let _running_guard = BraveAutomationRunningGuard;
-        if let Err(error) = run_brave_automation().await {
-            eprintln!("Brave 自动化失败: {error}");
+        brave_log("后台任务开始执行");
+        match run_brave_automation().await {
+            Ok(()) => brave_log("自动化流程执行完成"),
+            Err(error) => brave_error(format!("自动化流程失败: {error}")),
         }
     });
+    brave_log("后台任务创建成功，接口即将返回");
 
     Ok("Brave 自动化任务已启动".to_string())
 }
@@ -335,15 +361,9 @@ pub fn check_network() -> () {
         let res = uitl::ping("www.baidu.com").unwrap();
         let str2 = String::from_utf8_lossy(&res.stdout).clone();
         let str = str2.trim().to_string();
-        println!("output 字符串{}", str);
-        println!(
-            "🪵 [me.rs:118]~ token ~ \x1b[0;32mstr.len()\x1b[0m = {}",
-            str.len()
-        );
         if str.len() > 200 {
-            // println!("网络连接成功");
+            // 网络连接正常，无需处理。
         } else {
-            println!("网络连接失败");
             relink_wifi().await;
         }
     }
@@ -371,27 +391,19 @@ pub fn check_network() -> () {
             // get-PnpDevice | ? {$_.class -eq "NET"} | sort friendlyname | select friendlyname,instanceid
             let script = r#"Disable-PnpDevice -InstanceId  "PCI\VEN_10EC&DEV_8812&SUBSYS_881210EC&REV_01\4&33186293&0&00E8""#;
             // sleep(Duration::from_secs(270)).await;
-            let output = Command::new("powershell.exe")
+            Command::new("powershell.exe")
                 .args(&["-Command", &script])
                 .output()
                 .expect("执行失败");
-            println!(
-                "🪵 [me.rs:142]~ token ~ \x1b[0;32moutput\x1b[0m = {}",
-                String::from_utf8_lossy(output.stdout.as_slice())
-            );
 
             sleep(Duration::from_secs(6)).await;
 
             let script = r#"Enable-PnpDevice -InstanceId  "PCI\VEN_10EC&DEV_8812&SUBSYS_881210EC&REV_01\4&33186293&0&00E8""#;
             // sleep(Duration::from_secs(270)).await;
-            let output = Command::new("powershell.exe")
+            Command::new("powershell.exe")
                 .args(&["-Command", &script])
                 .output()
                 .expect("执行失败");
-            println!(
-                "🪵 [me.rs:142]~ token ~ \x1b[0;32moutput\x1b[0m = {}",
-                String::from_utf8_lossy(output.stdout.as_slice())
-            );
         });
     }
     let handle = tokio::spawn(async {
