@@ -21,8 +21,8 @@ use warp::Rejection;
 use winapi::shared::minwindef::{BOOL, LPARAM};
 use winapi::shared::windef::{HWND, RECT};
 use winapi::um::winuser::{
-    EnumWindows, GetClassNameW, GetWindowRect, IsWindow, IsWindowVisible, PostMessageW,
-    SetForegroundWindow, WM_CLOSE,
+    EnumWindows, GetClassNameW, GetWindowRect, IsIconic, IsWindow, IsWindowVisible, PostMessageW,
+    SetForegroundWindow, ShowWindow, SW_RESTORE, SW_SHOW, WM_CLOSE,
 };
 
 use rodio::Decoder;
@@ -112,10 +112,40 @@ impl Drop for BraveAutomationRunningGuard {
     }
 }
 
+struct BraveProcessGuard {
+    pid: Option<u32>,
+}
+
+impl BraveProcessGuard {
+    fn new(pid: u32) -> Self {
+        Self { pid: Some(pid) }
+    }
+
+    fn terminate(&mut self) -> Result<(), String> {
+        let Some(pid) = self.pid else {
+            return Ok(());
+        };
+
+        let result = terminate_brave_process(pid);
+        if result.is_ok() {
+            self.pid = None;
+        }
+        result
+    }
+}
+
+impl Drop for BraveProcessGuard {
+    fn drop(&mut self) {
+        if let Err(error) = self.terminate() {
+            brave_error(format!("清理 Brave 进程失败: {error}"));
+        }
+    }
+}
+
 async fn run_brave_automation() -> Result<(), String> {
     let existing_windows = chromium_windows()?;
 
-    task::spawn_blocking(open_brave_window)
+    let brave_process = task::spawn_blocking(open_brave_window)
         .await
         .map_err(|error| format!("启动 Brave 的任务异常: {error}"))??;
 
@@ -129,36 +159,45 @@ async fn run_brave_automation() -> Result<(), String> {
 
     sleep(Duration::from_secs(5)).await;
 
-    let close_result = task::spawn_blocking(move || close_window(brave_window))
-        .await
-        .map_err(|error| format!("关闭 Brave 窗口的任务异常: {error}"))
-        .and_then(|result| result);
+    let close_result =
+        task::spawn_blocking(move || close_brave_window(brave_window, brave_process))
+            .await
+            .map_err(|error| format!("关闭 Brave 窗口的任务异常: {error}"))
+            .and_then(|result| result);
 
     interaction_result?;
     close_result
 }
 
-fn open_brave_window() -> Result<(), String> {
+fn open_brave_window() -> Result<BraveProcessGuard, String> {
     let script = format!(
         "$ErrorActionPreference = 'Stop'; \
-         Start-Process -FilePath 'brave.exe' \
-         -ArgumentList @('--new-window', '{MAHJONG_SOUL_URL}')"
+         $process = Start-Process -FilePath 'brave.exe' \
+         -ArgumentList @('--new-window', '{MAHJONG_SOUL_URL}') -PassThru; \
+         $process.Id"
     );
     let output = Command::new("powershell.exe")
-        .args(["-Command", &script])
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
         .output()
         .map_err(|error| format!("无法启动 PowerShell: {error}"))?;
 
-    if output.status.success() {
-        Ok(())
-    } else {
+    if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        Err(if stderr.is_empty() {
+        return Err(if stderr.is_empty() {
             format!("PowerShell 退出状态: {}", output.status)
         } else {
             stderr
-        })
+        });
     }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let pid = stdout
+        .trim()
+        .parse::<u32>()
+        .map_err(|error| format!("无法解析 Brave 进程 PID {:?}: {error}", stdout.trim()))?;
+    brave_log(format!("已启动 Brave 进程，PID: {pid}"));
+
+    Ok(BraveProcessGuard::new(pid))
 }
 
 async fn wait_for_new_chromium_window(existing: &HashSet<usize>) -> Result<usize, String> {
@@ -230,9 +269,47 @@ fn interact_with_brave(window: usize) -> Result<(), String> {
         if IsWindow(hwnd) == 0 {
             return Err("Brave 窗口已经不存在".to_string());
         }
-        if SetForegroundWindow(hwnd) == 0 {
-            return Err("无法激活 Brave 窗口，为避免误点击已终止任务".to_string());
+
+        // 如果窗口最小化，先恢复
+        if IsIconic(hwnd) != 0 {
+            brave_log("窗口已最小化，正在恢复");
+            ShowWindow(hwnd, SW_RESTORE);
+            thread::sleep(std::time::Duration::from_millis(500));
+        } else {
+            // 确保窗口可见
+            ShowWindow(hwnd, SW_SHOW);
+            thread::sleep(std::time::Duration::from_millis(200));
         }
+
+        // 尝试激活窗口
+        if SetForegroundWindow(hwnd) == 0 {
+            brave_log("SetForegroundWindow 返回 0，尝试备用方案");
+
+            // 备用方案：使用 Alt 键绕过前台锁定限制
+            // 这是 Windows 推荐的方法，模拟用户按下 Alt 键可以临时解除前台锁定
+            use winapi::um::winuser::{keybd_event, KEYEVENTF_KEYUP};
+            const VK_MENU: u8 = 0x12; // Alt 键
+
+            keybd_event(VK_MENU, 0, 0, 0); // 按下 Alt
+            thread::sleep(std::time::Duration::from_millis(50));
+            SetForegroundWindow(hwnd); // 再次尝试激活
+            thread::sleep(std::time::Duration::from_millis(50));
+            keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0); // 释放 Alt
+
+            thread::sleep(std::time::Duration::from_millis(200));
+
+            // 验证窗口是否已成为前台窗口
+            use winapi::um::winuser::GetForegroundWindow;
+            if GetForegroundWindow() != hwnd {
+                return Err(
+                    "无法激活 Brave 窗口（已尝试备用方案），为避免误点击已终止任务".to_string(),
+                );
+            }
+            brave_log("备用方案成功激活窗口");
+        } else {
+            brave_log("SetForegroundWindow 成功");
+        }
+
         if GetWindowRect(hwnd, &mut rect) == 0 {
             return Err(format!(
                 "读取 Brave 窗口位置失败: {}",
@@ -271,6 +348,21 @@ fn click_repeatedly(point: (u16, u16), count: usize) {
     }
 }
 
+fn close_brave_window(window: usize, mut process: BraveProcessGuard) -> Result<(), String> {
+    let window_result = close_window(window);
+    thread::sleep(std::time::Duration::from_millis(500));
+    let process_result = process.terminate();
+
+    match (window_result, process_result) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(window_error), Ok(())) => Err(window_error),
+        (Ok(()), Err(process_error)) => Err(format!("关闭 Brave 进程失败: {process_error}")),
+        (Err(window_error), Err(process_error)) => Err(format!(
+            "关闭 Brave 窗口失败: {window_error}; 关闭 Brave 进程失败: {process_error}"
+        )),
+    }
+}
+
 fn close_window(window: usize) -> Result<(), String> {
     let hwnd = window as HWND;
     unsafe {
@@ -286,6 +378,31 @@ fn close_window(window: usize) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+fn terminate_brave_process(pid: u32) -> Result<(), String> {
+    let script = format!(
+        "$process = Get-Process -Id {pid} -ErrorAction SilentlyContinue; \
+         if ($null -ne $process -and $process.ProcessName -ieq 'brave') {{ \
+             & taskkill.exe /PID {pid} /T /F | Out-Null; \
+             if ($LASTEXITCODE -ne 0) {{ throw 'taskkill failed' }} \
+         }}"
+    );
+    let output = Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .output()
+        .map_err(|error| format!("无法启动 Brave 清理命令: {error}"))?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        Err(if stderr.is_empty() {
+            format!("Brave 清理命令退出状态: {}", output.status)
+        } else {
+            stderr
+        })
+    }
 }
 
 pub async fn play_list() -> Result<String, Rejection> {

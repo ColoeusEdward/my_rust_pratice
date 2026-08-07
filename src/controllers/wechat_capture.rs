@@ -1,9 +1,9 @@
 use crate::menu::start::{register_alt_q_action, unregister_alt_q_action, AltQAction};
 use crate::ocr::run_umi_ocr;
 use screenshots::Screen;
+use serde::Serialize;
 use std::ffi::OsString;
-use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::fs;
 use std::os::windows::prelude::*;
 use std::path::PathBuf;
 use std::ptr::null_mut;
@@ -25,6 +25,12 @@ const OCR_EXCLUDED_BOTTOM_PX: i32 = 172;
 const COMMA_SPLIT_MIN_CJK_CHARS: usize = 12;
 const DUPLICATE_SENTENCE_SIMILARITY: f64 = 0.8;
 const APPROXIMATE_DUPLICATE_MIN_CHARS: usize = 8;
+const DAILY_TEXT_APPEND_URL: &str = "https://meamoe.top/koa/newCen/appendText";
+
+#[derive(Serialize)]
+struct AppendTextRequest<'a> {
+    text: &'a str,
+}
 
 pub fn toggle_wechat_capture() {
     let state = CAPTURE_STOP_FLAG.get_or_init(|| Mutex::new(None));
@@ -44,10 +50,6 @@ pub fn toggle_wechat_capture() {
     println!("已启动微信聊天采集，每6秒采集一次，再次选择菜单项可停止。");
 
     tokio::spawn(async move {
-        if let Err(e) = clear_markdown_file(markdown_path()) {
-            eprintln!("清空微信聊天md失败: {}", e);
-        }
-
         run_capture_loop(Arc::clone(&stop_flag)).await;
         if clear_wechat_capture_state_if_current(&stop_flag) {
             unregister_alt_q_action(AltQAction::WechatCapture);
@@ -104,10 +106,11 @@ fn is_current_wechat_capture_flag(
 }
 
 async fn run_capture_loop(stop_flag: Arc<AtomicBool>) {
+    let client = reqwest::Client::new();
     let mut known_segments = Vec::new();
 
     while !stop_flag.load(Ordering::SeqCst) {
-        if let Err(e) = capture_once(&mut known_segments) {
+        if let Err(e) = capture_once(&client, &mut known_segments).await {
             eprintln!("微信聊天采集失败: {}", e);
         }
 
@@ -115,7 +118,10 @@ async fn run_capture_loop(stop_flag: Arc<AtomicBool>) {
     }
 }
 
-fn capture_once(known_segments: &mut Vec<String>) -> Result<(), String> {
+async fn capture_once(
+    client: &reqwest::Client,
+    known_segments: &mut Vec<String>,
+) -> Result<(), String> {
     let hwnd = find_wechat_window().ok_or_else(|| "未找到微信窗口".to_string())?;
     let image_path = capture_window(hwnd)?;
     let text = run_umi_ocr(&image_path)?;
@@ -129,28 +135,41 @@ fn capture_once(known_segments: &mut Vec<String>) -> Result<(), String> {
         return Ok(());
     }
 
-    append_segments(markdown_path(), &new_segments)?;
+    append_segments_to_server(client, &new_segments).await?;
     known_segments.extend(new_segments);
     Ok(())
 }
 
-fn markdown_path() -> PathBuf {
-    PathBuf::from("wechat_chat.md")
+fn format_segments_for_upload(segments: &[String]) -> String {
+    let mut text = segments.join("\n");
+    text.push('\n');
+    text
 }
 
-fn clear_markdown_file(path: PathBuf) -> Result<(), String> {
-    fs::write(path, "").map_err(|e| e.to_string())
-}
+async fn append_segments_to_server(
+    client: &reqwest::Client,
+    segments: &[String],
+) -> Result<(), String> {
+    let text = format_segments_for_upload(segments);
+    let response = client
+        .post(DAILY_TEXT_APPEND_URL)
+        .json(&AppendTextRequest { text: &text })
+        .send()
+        .await
+        .map_err(|e| format!("上传微信聊天文本失败: {}", e))?;
 
-fn append_segments(path: PathBuf, segments: &[String]) -> Result<(), String> {
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .map_err(|e| e.to_string())?;
-
-    for segment in segments {
-        writeln!(file, "{}", segment).map_err(|e| e.to_string())?;
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        let detail = if body.trim().is_empty() {
+            String::new()
+        } else {
+            format!(": {}", body.trim())
+        };
+        return Err(format!(
+            "上传微信聊天文本失败，服务器返回 {}{}",
+            status, detail
+        ));
     }
 
     Ok(())
@@ -673,21 +692,13 @@ mod tests {
     }
 
     #[test]
-    fn append_segments_writes_one_sentence_per_line_without_blank_lines() {
-        let path = std::env::temp_dir().join(format!(
-            "wechat-chat-test-{}.md",
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_millis()
-        ));
+    fn format_segments_for_upload_writes_one_sentence_per_line() {
         let segments = vec!["第一句。".to_string(), "第二句。".to_string()];
 
-        append_segments(path.clone(), &segments).unwrap();
-        let written = fs::read_to_string(&path).unwrap();
-        let _ = fs::remove_file(path);
-
-        assert_eq!(written, "第一句。\n第二句。\n");
+        assert_eq!(
+            format_segments_for_upload(&segments),
+            "第一句。\n第二句。\n"
+        );
     }
 
     #[test]
