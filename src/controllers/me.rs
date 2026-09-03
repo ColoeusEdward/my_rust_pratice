@@ -44,6 +44,8 @@ const FIRST_CLICK_OFFSET: (i32, i32) = (200, 550);
 const CHROMIUM_WINDOW_CLASS: &str = "Chrome_WidgetWin_1";
 const NOTIFICATION_SOCKET_URL: &str = "http://meamoe.top:3100/";
 const DEFAULT_NOTIFICATION_TITLE: &str = "hello_cargo";
+const CHARGING_COMPLETE_KEYWORD: &str = "充电完成";
+const CHARGING_COMPLETE_NOTIFICATION_DELAY: Duration = Duration::from_secs(5 * 60);
 
 static BRAVE_AUTOMATION_RUNNING: AtomicBool = AtomicBool::new(false);
 
@@ -466,14 +468,23 @@ pub async fn start_notification_socket_listener() {
                         return;
                     };
 
-                    let task = task::spawn_blocking(move || {
-                        if let Err(error) =
-                            show_notification_and_copy_code(&notification.title, &notification.body)
-                        {
-                            eprintln!("显示 notification 通知失败: {}", error);
+                    let notification_task = tokio::spawn(async move {
+                        if should_delay_notification(&notification) {
+                            println!("收到充电完成通知，5 分钟后显示");
+                            sleep(CHARGING_COMPLETE_NOTIFICATION_DELAY).await;
                         }
+
+                        let toast_task = task::spawn_blocking(move || {
+                            if let Err(error) = show_notification_and_copy_code(
+                                &notification.title,
+                                &notification.body,
+                            ) {
+                                eprintln!("显示 notification 通知失败: {}", error);
+                            }
+                        });
+                        drop(toast_task);
                     });
-                    drop(task);
+                    drop(notification_task);
                 }
                 .boxed()
             })
@@ -509,6 +520,10 @@ impl DesktopNotification {
     fn text_for_code_detection(&self) -> String {
         format!("{}\n{}", self.title, self.body)
     }
+}
+
+fn should_delay_notification(notification: &DesktopNotification) -> bool {
+    notification.body.contains(CHARGING_COMPLETE_KEYWORD)
 }
 
 fn notification_from_socket_payload(payload: Payload) -> Option<DesktopNotification> {
@@ -1096,6 +1111,26 @@ mod tests {
             longest_verification_code(&notification.text_for_code_detection()),
             Some("123456".to_string())
         );
+    }
+
+    #[test]
+    fn charging_complete_notification_is_delayed_when_body_matches() {
+        let notification = DesktopNotification {
+            title: "设备状态".to_string(),
+            body: "移动电源充电完成，请拔掉电源".to_string(),
+        };
+
+        assert!(should_delay_notification(&notification));
+    }
+
+    #[test]
+    fn charging_complete_title_alone_does_not_delay_notification() {
+        let notification = DesktopNotification {
+            title: "充电完成".to_string(),
+            body: "设备状态已更新".to_string(),
+        };
+
+        assert!(!should_delay_notification(&notification));
     }
 
     #[test]
