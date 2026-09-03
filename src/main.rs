@@ -72,6 +72,10 @@ async fn main() {
         warp::serve(route).run(([0, 0, 0, 0], port)).await;
     });
 
+    let _notification_listener = tokio::spawn(async {
+        controllers::me::start_notification_socket_listener().await;
+    });
+
     if enums::USER.get().unwrap().as_str() == enums::HW_USER {
         controllers::me::check_network();
     }

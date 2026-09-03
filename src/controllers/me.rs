@@ -8,8 +8,11 @@ use edge_tts_rust::Boundary;
 use edge_tts_rust::EdgeTtsClient;
 use edge_tts_rust::SpeakOptions;
 use enigo::*;
+use futures::FutureExt;
 use rsautogui::mouse;
+use rust_socketio::{asynchronous::ClientBuilder, Payload};
 use serde::Deserialize;
+use serde_json::Value;
 use std::collections::HashSet;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -39,6 +42,8 @@ const CLICK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
 const REPEATED_CLICK_COUNT: usize = 10;
 const FIRST_CLICK_OFFSET: (i32, i32) = (200, 550);
 const CHROMIUM_WINDOW_CLASS: &str = "Chrome_WidgetWin_1";
+const NOTIFICATION_SOCKET_URL: &str = "http://meamoe.top:3100/";
+const DEFAULT_NOTIFICATION_TITLE: &str = "hello_cargo";
 
 static BRAVE_AUTOMATION_RUNNING: AtomicBool = AtomicBool::new(false);
 
@@ -431,21 +436,8 @@ pub async fn toast_notify(query: ToastQuery) -> Result<String, Rejection> {
 
     let res = task::spawn_blocking({
         let text = text.clone();
-        let code = code.clone();
 
-        move || {
-            show_windows_toast(&text)?;
-
-            if let Some(code) = code {
-                let mut clipboard =
-                    arboard::Clipboard::new().map_err(|e| format!("剪贴板打开失败: {}", e))?;
-                clipboard
-                    .set_text(code)
-                    .map_err(|e| format!("剪贴板写入失败: {}", e))?;
-            }
-
-            Ok::<(), String>(())
-        }
+        move || show_notification_and_copy_code(DEFAULT_NOTIFICATION_TITLE, &text).map(|_| ())
     })
     .await;
 
@@ -457,6 +449,110 @@ pub async fn toast_notify(query: ToastQuery) -> Result<String, Rejection> {
         },
         Ok(Err(e)) => Ok(format!("toast 失败: {}", e)),
         Err(e) => Ok(format!("toast 失败: {}", e)),
+    }
+}
+
+pub async fn start_notification_socket_listener() {
+    loop {
+        let connection = ClientBuilder::new(NOTIFICATION_SOCKET_URL)
+            .namespace("/")
+            .reconnect(true)
+            .reconnect_on_disconnect(true)
+            .reconnect_delay(1_000, 5_000)
+            .on("notification", |payload: Payload, _| {
+                async move {
+                    let Some(notification) = notification_from_socket_payload(payload) else {
+                        eprintln!("收到不支持的二进制 notification 广播，已忽略");
+                        return;
+                    };
+
+                    let task = task::spawn_blocking(move || {
+                        if let Err(error) =
+                            show_notification_and_copy_code(&notification.title, &notification.body)
+                        {
+                            eprintln!("显示 notification 通知失败: {}", error);
+                        }
+                    });
+                    drop(task);
+                }
+                .boxed()
+            })
+            .on("error", |payload: Payload, _| {
+                async move {
+                    eprintln!("notification Socket.IO 错误: {:?}", payload);
+                }
+                .boxed()
+            })
+            .connect()
+            .await;
+
+        match connection {
+            Ok(_socket) => {
+                println!("notification Socket.IO 已连接: {}", NOTIFICATION_SOCKET_URL);
+                std::future::pending::<()>().await;
+            }
+            Err(error) => {
+                eprintln!("notification Socket.IO 连接失败: {}；5 秒后重试", error);
+                sleep(Duration::from_secs(5)).await;
+            }
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct DesktopNotification {
+    title: String,
+    body: String,
+}
+
+impl DesktopNotification {
+    fn text_for_code_detection(&self) -> String {
+        format!("{}\n{}", self.title, self.body)
+    }
+}
+
+fn notification_from_socket_payload(payload: Payload) -> Option<DesktopNotification> {
+    match payload {
+        Payload::Text(values) => {
+            let value = match values.as_slice() {
+                [value] => value.clone(),
+                _ => Value::Array(values),
+            };
+            Some(notification_from_json_value(value))
+        }
+        #[allow(deprecated)]
+        Payload::String(text) => Some(notification_from_json_value(
+            serde_json::from_str(&text).unwrap_or(Value::String(text)),
+        )),
+        Payload::Binary(_) => None,
+    }
+}
+
+fn notification_from_json_value(value: Value) -> DesktopNotification {
+    match &value {
+        Value::String(body) => DesktopNotification {
+            title: DEFAULT_NOTIFICATION_TITLE.to_string(),
+            body: body.clone(),
+        },
+        Value::Object(object) => {
+            let title = object
+                .get("title")
+                .and_then(Value::as_str)
+                .filter(|title| !title.trim().is_empty())
+                .unwrap_or(DEFAULT_NOTIFICATION_TITLE)
+                .to_string();
+            let body = object
+                .get("content")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .unwrap_or_else(|| value.to_string());
+
+            DesktopNotification { title, body }
+        }
+        _ => DesktopNotification {
+            title: DEFAULT_NOTIFICATION_TITLE.to_string(),
+            body: value.to_string(),
+        },
     }
 }
 
@@ -781,8 +877,23 @@ fn choose_longer_code<'a>(best: Option<&'a str>, candidate: &'a str) -> Option<&
     }
 }
 
-fn show_windows_toast(text: &str) -> Result<(), String> {
-    let script = windows_toast_script(text);
+fn show_notification_and_copy_code(title: &str, body: &str) -> Result<Option<String>, String> {
+    let code = longest_verification_code(&format!("{}\n{}", title, body));
+    show_windows_toast(title, body)?;
+
+    if let Some(code) = &code {
+        let mut clipboard =
+            arboard::Clipboard::new().map_err(|e| format!("剪贴板打开失败: {}", e))?;
+        clipboard
+            .set_text(code)
+            .map_err(|e| format!("剪贴板写入失败: {}", e))?;
+    }
+
+    Ok(code)
+}
+
+fn show_windows_toast(title: &str, body: &str) -> Result<(), String> {
+    let script = windows_toast_script(title, body);
 
     let output = Command::new("powershell.exe")
         .args([
@@ -807,9 +918,9 @@ fn show_windows_toast(text: &str) -> Result<(), String> {
     }
 }
 
-fn windows_toast_script(text: &str) -> String {
-    let title = escape_powershell_single_quoted("hello_cargo");
-    let body = escape_powershell_single_quoted(text);
+fn windows_toast_script(title: &str, body: &str) -> String {
+    let title = escape_powershell_single_quoted(title);
+    let body = escape_powershell_single_quoted(body);
 
     format!(
         r#"
@@ -921,12 +1032,80 @@ mod tests {
     }
 
     #[test]
+    fn notification_object_uses_title_and_content() {
+        let notification = notification_from_json_value(serde_json::json!({
+            "title": "系统通知",
+            "content": "你的验证码是 123456",
+            "level": "info"
+        }));
+
+        assert_eq!(
+            notification,
+            DesktopNotification {
+                title: "系统通知".to_string(),
+                body: "你的验证码是 123456".to_string(),
+            }
+        );
+        assert_eq!(
+            longest_verification_code(&notification.text_for_code_detection()),
+            Some("123456".to_string())
+        );
+    }
+
+    #[test]
+    fn notification_object_falls_back_to_json_for_non_string_content() {
+        let value = serde_json::json!({
+            "title": "系统通知",
+            "content": { "code": 123456 },
+            "level": "info"
+        });
+        let notification = notification_from_json_value(value.clone());
+
+        assert_eq!(notification.title, "系统通知");
+        assert_eq!(notification.body, value.to_string());
+    }
+
+    #[test]
+    fn notification_non_object_uses_default_title_and_json_body() {
+        let notification = notification_from_json_value(serde_json::json!(["服务通知", 123]));
+
+        assert_eq!(notification.title, DEFAULT_NOTIFICATION_TITLE);
+        assert_eq!(notification.body, "[\"服务通知\",123]");
+    }
+
+    #[test]
+    fn notification_payload_with_multiple_values_uses_json_array() {
+        let notification = notification_from_socket_payload(Payload::Text(vec![
+            serde_json::json!("第一条"),
+            serde_json::json!("第二条"),
+        ]))
+        .expect("文本广播应被转换为通知");
+
+        assert_eq!(notification.title, DEFAULT_NOTIFICATION_TITLE);
+        assert_eq!(notification.body, "[\"第一条\",\"第二条\"]");
+    }
+
+    #[test]
+    fn notification_code_can_span_title_and_body() {
+        let notification = DesktopNotification {
+            title: "验证码".to_string(),
+            body: "123456".to_string(),
+        };
+
+        assert_eq!(
+            longest_verification_code(&notification.text_for_code_detection()),
+            Some("123456".to_string())
+        );
+    }
+
+    #[test]
     fn toast_script_uses_notify_icon_balloon_tip() {
-        let script = windows_toast_script("测试通知");
+        let script = windows_toast_script("测试标题", "测试通知");
 
         assert!(script.contains("System.Windows.Forms"));
         assert!(script.contains("NotifyIcon"));
         assert!(script.contains("ShowBalloonTip"));
+        assert!(script.contains("测试标题"));
         assert!(script.contains("测试通知"));
     }
 }
