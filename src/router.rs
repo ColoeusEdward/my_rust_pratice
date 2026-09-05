@@ -27,7 +27,11 @@ pub fn get_router() -> impl warp::Filter<Extract = impl warp::Reply, Error = war
             .and_then(me::get_text_audio))
         .or(warp::path!("playTextAbogen")
             .and(warp::body::json())
-            .and_then(me::play_text_abogen));
+            .and_then(me::play_text_abogen))
+        .or(warp::path!("save_cdxpp_token")
+            .and(warp::body::content_length_limit(64 * 1024))
+            .and(warp::body::bytes())
+            .and_then(me::save_cdxpp_token));
 
     let cors = warp::cors()
         // .allow_origin("https://meamoe.top") // 仅允许特定域名

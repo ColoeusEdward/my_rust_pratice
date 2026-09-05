@@ -29,7 +29,7 @@ use winapi::um::winuser::{
 };
 
 use rodio::Decoder;
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::Cursor;
 use winapi::um::winuser::{GetAsyncKeyState, VK_MENU};
 
@@ -46,6 +46,7 @@ const NOTIFICATION_SOCKET_URL: &str = "http://meamoe.top:3100/";
 const DEFAULT_NOTIFICATION_TITLE: &str = "hello_cargo";
 const CHARGING_COMPLETE_KEYWORD: &str = "充电完成";
 const CHARGING_COMPLETE_NOTIFICATION_DELAY: Duration = Duration::from_secs(5 * 60);
+const CDXPP_TOKEN_PATH: &str = r"E:\chatE\cdxpp.token";
 
 static BRAVE_AUTOMATION_RUNNING: AtomicBool = AtomicBool::new(false);
 
@@ -576,6 +577,65 @@ pub async fn test() -> Result<String, Rejection> {
 }
 pub async fn test2(s: String) -> Result<String, Rejection> {
     Ok(format!("********"))
+}
+
+pub async fn save_cdxpp_token(
+    body: warp::hyper::body::Bytes,
+) -> Result<impl warp::Reply, Rejection> {
+    let token = match parse_cdxpp_token(&body) {
+        Ok(token) => token,
+        Err(error) => {
+            return Ok(warp::reply::with_status(
+                error,
+                warp::http::StatusCode::BAD_REQUEST,
+            ));
+        }
+    };
+
+    let result = task::spawn_blocking(move || {
+        let path = std::path::Path::new(CDXPP_TOKEN_PATH);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(path, token)
+    })
+    .await;
+
+    let (message, status) = match result {
+        Ok(Ok(())) => (
+            "cdxpp token 保存成功".to_string(),
+            warp::http::StatusCode::OK,
+        ),
+        Ok(Err(error)) => (
+            format!("cdxpp token 保存失败: {error}"),
+            warp::http::StatusCode::INTERNAL_SERVER_ERROR,
+        ),
+        Err(error) => (
+            format!("cdxpp token 保存任务失败: {error}"),
+            warp::http::StatusCode::INTERNAL_SERVER_ERROR,
+        ),
+    };
+
+    Ok(warp::reply::with_status(message, status))
+}
+
+fn parse_cdxpp_token(body: &[u8]) -> Result<String, String> {
+    let body = String::from_utf8(body.to_vec())
+        .map_err(|_| "cdxpp token 必须是 UTF-8 字符串".to_string())?;
+
+    if let Ok(value) = serde_json::from_str::<Value>(&body) {
+        return match value {
+            Value::String(token) => Ok(token),
+            Value::Object(object) => object
+                .get("str")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .ok_or_else(|| "JSON 请求体必须包含字符串字段 str".to_string()),
+            _ => Err("请求体必须是字符串或包含 str 字段的 JSON 对象".to_string()),
+        };
+    }
+
+    Ok(body)
 }
 
 pub fn show_mouse_xy() -> () {
@@ -1142,5 +1202,21 @@ mod tests {
         assert!(script.contains("ShowBalloonTip"));
         assert!(script.contains("测试标题"));
         assert!(script.contains("测试通知"));
+    }
+
+    #[test]
+    fn cdxpp_token_parser_accepts_existing_json_request_style() {
+        assert_eq!(
+            parse_cdxpp_token(br#"{"str":"token-value"}"#),
+            Ok("token-value".to_string())
+        );
+    }
+
+    #[test]
+    fn cdxpp_token_parser_accepts_plain_text() {
+        assert_eq!(
+            parse_cdxpp_token(b"token-value"),
+            Ok("token-value".to_string())
+        );
     }
 }
